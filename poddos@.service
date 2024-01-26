@@ -1,0 +1,12 @@
+[Unit]
+Description=Poddos %I
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=poddos --name=%I start
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

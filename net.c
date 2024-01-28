@@ -117,7 +117,7 @@ int net(pid_t pid)
     req.ifinfo.ifi_family = AF_UNSPEC;
     req.ifinfo.ifi_index = 0;
     req.ifinfo.ifi_change = 0xFFFFFFFF; 
-    req.ifinfo.ifi_flags = IFF_UP;
+    req.ifinfo.ifi_flags = IFF_UP | IFF_BROADCAST | IFF_MULTICAST | IFF_RUNNING;
 
     n = 512;
 

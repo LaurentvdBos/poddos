@@ -52,7 +52,7 @@ int rawsock(char *ifname)
         .mr_ifindex = ifindex,
         .mr_type = PACKET_MR_PROMISC,
     };
-    if (setsockopt(sock, SOL_SOCKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) == -1) err(1, "setsockopt(PACKET_ADD_MEMBERSHIP)");
+    if (setsockopt(sock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) == -1) err(1, "setsockopt(PACKET_ADD_MEMBERSHIP)");
 
     // Bind the socket to the provided index and start receiving all packages.
     struct sockaddr_ll addr_ll;

@@ -97,7 +97,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 		penvp[nenvp-1] = arg;
 		break;
 	case 'E':
-		ephemeral = !ephemeral;
+		ephemeral = true;
 		break;
 	case 'l':
 		strncpy(layer_path, arg, PATH_MAX-1);

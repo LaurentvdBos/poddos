@@ -306,7 +306,7 @@ void dhcpsend(int sock)
     if (sendto(sock, buf, len, 0, (struct sockaddr *)&addr_ll, sizeof(struct sockaddr_ll)) == -1) err(1, "sendto");
 }
 
-int dhcpstep(int sock)
+int dhcpstep(char *ifname, int sock)
 {
     int n;
     char buf[65535];
@@ -338,7 +338,7 @@ int dhcpstep(int sock)
         else if (*msgtype == ACK) {
             // Initialize the link
             struct ifreq req;
-            strcpy(req.ifr_name, "macvlan0");
+            strncpy(req.ifr_name, ifname, IFNAMSIZ);
             uint8_t *options = (uint8_t *)(dhcphdr + 1);
             struct sockaddr_in *sai = (struct sockaddr_in *)&req.ifr_addr;
             sai->sin_family = AF_INET;
@@ -370,7 +370,7 @@ int dhcpstep(int sock)
             
             route.rt_flags = RTF_UP | RTF_GATEWAY;
             route.rt_metric = 0;
-            route.rt_dev = "macvlan0";
+            route.rt_dev = ifname;
 
             ioctl(sock, SIOCDELRT, &route); // Errors are ignored
             if (ioctl(sock, SIOCADDRT, &route) == -1) err(1, "ioctl(SIOCADDRT)");
@@ -394,12 +394,10 @@ int dhcpstep(int sock)
             fclose(f);
             close(sock);
 
-            // Initialzie an alarm when the lease time is 90&
+            // Return when dhcp should be restarted (when the lease time is 90%)
             uint8_t *lease = optget(options, IP_ADDRESS_LEASE_TIME);
-            uint32_t lease_time = ntohl(*(uint32_t *)lease);
-            alarm(lease_time / 10 * 9);
-
-            sock = -1;
+            int lease_time = (int)ntohl(*(uint32_t *)lease);
+            sock = -lease_time / 10 * 9;
         }
         else {
             // In case of any other message (e.g., NACK) we go back to start
@@ -411,7 +409,7 @@ int dhcpstep(int sock)
 }
 
 // Initiate a DHCP handshake
-int dhcpstart()
+int dhcpstart(char *ifname)
 {
     struct ifreq req;
     int sock;
@@ -426,12 +424,12 @@ int dhcpstart()
     if (sock == -1) err(1, "socket");    
 
     // Get the index of the interface;
-    strcpy(req.ifr_name, "macvlan0");
+    strncpy(req.ifr_name, ifname, IFNAMSIZ);
     if (ioctl(sock, SIOCGIFINDEX, &req) == -1) err(1, "ioctl(SIOCGIFINDEX)");
     ifindex = req.ifr_ifindex;
 
     // Get the mac address of the interface
-    strcpy(req.ifr_name, "macvlan0");
+    strncpy(req.ifr_name, ifname, IFNAMSIZ);
     if (ioctl(sock, SIOCGIFHWADDR, &req) == -1) err(1, "ioctl(SIOCGIFHWADDR)");
     memcpy(mac, &req.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
 

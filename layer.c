@@ -17,6 +17,7 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/signalfd.h>
+#include <sys/timerfd.h>
 #include <termios.h>
 #include <utmp.h>
 
@@ -25,7 +26,8 @@
 #include "net.h"
 #include "dhcp.h"
 
-int namefd = -1;
+int namefd = -1, timefd = -1;
+int rawfd = -1, tapfd = -1;
 
 void makeugmap(pid_t pid)
 {
@@ -124,11 +126,6 @@ void forktochild()
             struct termios termp_raw = { 0 };
             cfmakeraw(&termp_raw);
             tcsetattr(STDIN_FILENO, TCSADRAIN, &termp_raw);
-
-            int flags;
-            if ((flags = fcntl(termfd, F_GETFL)) > -1) fcntl(termfd, F_SETFL, flags | O_NONBLOCK);
-            if ((flags = fcntl(STDIN_FILENO, F_GETFL)) > -1) fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
-            if ((flags = fcntl(STDOUT_FILENO, F_GETFL)) > -1) fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK);
         }
 
         // Create a mask containing all signals ...
@@ -143,13 +140,16 @@ void forktochild()
         int sfd = signalfd(-1, &mask, SFD_CLOEXEC);
         if (sfd == -1) err(1, "signalfd");
 
-        nfds_t nfds = 5;
+        nfds_t nfds = 8;
         struct pollfd pfds[] = {
             { .fd = termfd, .events = 0 },
             { .fd = STDIN_FILENO, .events = 0 },
             { .fd = STDOUT_FILENO, .events = 0 },
             { .fd = -1, .events = POLLIN },
             { .fd = sfd, .events = POLLIN },
+            { .fd = tapfd, .events = POLLIN },
+            { .fd = rawfd, .events = POLLIN },
+            { .fd = timefd, .events = POLLIN },
         };
 
         char bufin[1024], bufout[1024];
@@ -165,29 +165,38 @@ void forktochild()
                 if (errno == EINTR) continue;
                 err(1, "poll");
             }
-            if (pfds[1].revents & POLLIN) {
-                if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1) err(1, "read(stdin)");
-            }
-            if (pfds[0].events & POLLOUT || nin > 0) {
+            if (pfds[0].events & POLLOUT) {
                 ssize_t n;
-                if ((n = write(termfd, bufin, nin)) == -1 && errno != EWOULDBLOCK) err(1, "write(fd)");
+                if ((n = write(termfd, bufin, nin)) == -1) err(1, "write(fd)");
                 memmove(bufin, bufin+n, nin-n);
                 nin -= n;
             }
             if (pfds[0].revents & POLLIN) {
                 if ((nout = read(termfd, bufout, 1024)) == -1) err(1, "read(fd)");
             }
-            if (pfds[2].revents & POLLOUT || nout > 0) {
-                ssize_t n;
-                if ((n = write(STDOUT_FILENO, bufout, nout)) == -1 && errno != EWOULDBLOCK) err(1, "write(stdout)");
-                memmove(bufout, bufout+n, nout-n);
-                nout -= n;
-            }
             if (pfds[0].revents & POLLHUP) {
                 break;
             }
+            if (pfds[1].revents & POLLIN) {
+                if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1) err(1, "read(stdin)");
+            }
+            if (pfds[2].revents & POLLOUT) {
+                ssize_t n;
+                if ((n = write(STDOUT_FILENO, bufout, nout)) == -1) err(1, "write(stdout)");
+                memmove(bufout, bufout+n, nout-n);
+                nout -= n;
+            }
             if (pfds[3].revents & POLLIN) {
-                pfds[3].fd = dhcpstep(pfds[3].fd);
+                pfds[3].fd = dhcpstep(tapname, pfds[3].fd);
+
+                if (pfds[3].fd < 0) {
+                    // A negative value indicates that DHCP is done and we need to set a timeout
+                    struct itimerspec val = {
+                        .it_value = { .tv_sec = -pfds[3].fd, .tv_nsec = 0 },
+                        .it_interval = { 0 }
+                    };
+                    if (timerfd_settime(timefd, 0, &val, NULL) == -1) err(1, "timerfd_settime");
+                }
             }
             if (pfds[4].revents & POLLIN) {
                 struct signalfd_siginfo fdsi;
@@ -200,14 +209,6 @@ void forktochild()
                     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1) err(1, "ioctl(TIOCGWINSZ)");
                     if (ioctl(termfd, TIOCSWINSZ, &ws) == -1) err(1, "ioctl(TIOCSWINSZ)");
                 }
-                else if (fdsi.ssi_signo == SIGALRM) {
-                    // SIGALRM indicates a DHCP renewal (or a timeout of a previous renewal...)
-                    if (pfds[3].fd > 0) close(pfds[3].fd);
-                    pfds[3].fd = dhcpstart();
-                    
-                    // Set a timer to retry DHCP after 30 seconds
-                    alarm(30);
-                }
                 else if (fdsi.ssi_signo == SIGCHLD) {
                     // SIGCHLD indicates that the child exited
                     break;
@@ -217,9 +218,34 @@ void forktochild()
                     kill(pid, fdsi.ssi_signo);
                 }
             }
+            if (pfds[5].revents & POLLIN) {
+                char buf[1518];
+                int n = read(tapfd, &buf, 1518);
+                if (write(rawfd, buf, n) == -1) err(1, "write(rawfd)");
+            }
+            if (pfds[6].revents & POLLIN) {
+                char buf[1518];
+                int n = read(rawfd, &buf, 1518);
+                if (write(tapfd, buf, n) == -1) err(1, "write(tapfd)");
+            }
+            if (pfds[7].revents & POLLIN) {
+                // Timer expiration indicates that we should renew the DHCP
+                if (pfds[3].fd > 0) close(pfds[3].fd);
+                pfds[3].fd = dhcpstart(tapname);
+                
+                // Set a timer to retry DHCP after 30 seconds
+                struct itimerspec val = {
+                    .it_value = { .tv_sec = 30, .tv_nsec = 0 },
+                    .it_interval = { 0 }
+                };
+                if (timerfd_settime(timefd, 0, &val, NULL) == -1) err(1, "timerfd_settime");
+            }
         }
 
         close(sfd);
+        close(timefd);
+        close(rawfd);
+        close(tapfd);
 
         int wstatus;
         if (wait(&wstatus) == -1) err(1, "wait");
@@ -258,7 +284,6 @@ void lstart(unsigned flags, char **argv, char **envp)
         char buf;
         if (read(pipefd[0], &buf, 1) > -1) {
             makeugmap(getppid());
-            if (flags & LAYER_NET) net(getppid());
         }
 
         quick_exit(0);
@@ -272,6 +297,8 @@ void lstart(unsigned flags, char **argv, char **envp)
         namefd = open(namedir, O_DIRECTORY | O_CLOEXEC);
         if (namefd == -1) err(1, "open(%s)", namedir);
     }
+
+    if (flags & LAYER_NET) rawfd = rawsock(ifname);
 
     unsigned uflags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID;
     if (flags & LAYER_NET) uflags |= CLONE_NEWNET | CLONE_NEWUTS;
@@ -408,17 +435,35 @@ void lstart(unsigned flags, char **argv, char **envp)
     if (mount("none", "/dev/pts", "devpts", 0, "newinstance,mode=620,ptmxmode=666,gid=5") == -1) err(1, "mount(/dev/pts)");
     if (symlink("pts/ptmx", "/dev/ptmx") == -1) err(1, "symlink(pts/ptmx, /dev/ptmx)");
 
-    // Intialize DHCP before forking
-    if (flags & LAYER_NET) {
-        int sock = dhcpstart();
-        while (sock != -1) sock = dhcpstep(sock);
-    }
+    // Mount /dev/net/tun
+    if (mkdir("/dev/net", 0777) == -1) err(1, "mkdir(/dev/net)");
+    int fd = open("/dev/net/tun", O_WRONLY | O_CREAT, 0666);
+    if (fd > -1) close(fd);
+    if (mount("/old_root/dev/net/tun", "/dev/net/tun", "ignored", MS_BIND, NULL) == -1) err(1, "mount(/dev/net/tun)");
+
+    // Make a tap device in the network namespace
+    if (flags & LAYER_NET) tapfd = maketap();
+
+    // Make a timer file descriptor before forking
+    if ((timefd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC | TFD_NONBLOCK)) == -1) err(1, "timefd_create");
 
     // Fork to get pid 1, this will also get us a pty if needed
     forktochild();
 
-    // Turn off the alarm set by DHCP
-    alarm(0);
+    // Initialize DHCP
+    if (flags & LAYER_NET) {
+        int sock = dhcpstart(tapname);
+        while (sock > 0) sock = dhcpstep(tapname, sock);
+        struct itimerspec val = {
+            .it_value = { .tv_sec = -sock, .tv_nsec = 0 },
+            .it_interval = { 0 }
+        };
+        if (timerfd_settime(timefd, 0, &val, NULL) == -1) err(1, "timerfd_settime");
+
+        close(tapfd);
+        close(rawfd);
+        close(timefd);
+    }
 
     // Mount /proc (now that we are pid 1)
     if (mount("none", "/proc", "proc", MS_NODEV | MS_NOSUID | MS_NOEXEC, NULL) == -1) err(1, "mount(/proc)");

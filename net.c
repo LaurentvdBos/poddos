@@ -1,22 +1,24 @@
 #define _GNU_SOURCE
-#include <errno.h>
+#include <arpa/inet.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
-#include <linux/rtnetlink.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
+#include <net/ethernet.h>
+#include <net/ethernet.h>
+#include <net/if_arp.h>
+#include <netpacket/packet.h>
 #include <sys/ioctl.h>
-#include <net/if.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <linux/if_tun.h>
 
-#include <arpa/inet.h>
+#include <string.h>
 
 #include "net.h"
 #include "poddos.h"
+
+char tapname[IFNAMSIZ] = { 0 };
 
 void bringloup()
 {
@@ -24,170 +26,75 @@ void bringloup()
         .ifr_name = "lo",
         .ifr_flags = IFF_UP | IFF_RUNNING
     };
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock == -1) err(1, "socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)");
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1) err(1, "socket(AF_INET, SOCK_DGRAM, 0)");
     if (ioctl(sock, SIOCSIFFLAGS, &req) == -1) err(1, "ioctl(SIOCSIFFLAGS)");
     close(sock);
 }
 
-int sendnl(int fd, struct nlmsghdr *hdr)
+int rawsock(char *ifname)
 {
-    static int seq = 0;
+    struct ifreq req;
+    int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+    if (sock == -1) err(1, "socket(AF_PACKET)");
 
-    struct iovec iov = { hdr, hdr->nlmsg_len };
-    struct sockaddr_nl sa;
-    struct msghdr msg = { &sa, sizeof(sa), &iov, 1, NULL, 0, 0 };
+    // Make the socket cloexec
+    fcntl(sock, F_SETFD, O_CLOEXEC);
 
-    memset(&sa, 0, sizeof(sa));
-    sa.nl_family = AF_NETLINK;
+    // Get the index of the interface;
+    memset(&req, 0, sizeof(struct ifreq));
+    strcpy(req.ifr_name, ifname);
+    if (ioctl(sock, SIOCGIFINDEX, &req) == -1) err(1, "ioctl(SIOCGIFINDEX)");
+    int ifindex = req.ifr_ifindex;
 
-    hdr->nlmsg_pid = 0;
-    hdr->nlmsg_seq = seq++;
+    // Make the socket receive all frames (promiscuous mode)
+    struct packet_mreq mreq = {
+        .mr_ifindex = ifindex,
+        .mr_type = PACKET_MR_PROMISC,
+    };
+    if (setsockopt(sock, SOL_SOCKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) == -1) err(1, "setsockopt(PACKET_ADD_MEMBERSHIP)");
 
-    return sendmsg(fd, &msg, 0);
+    // Bind the socket to the provided index and start receiving all packages.
+    struct sockaddr_ll addr_ll;
+    memset(&addr_ll, 0, sizeof(struct sockaddr_ll));
+    addr_ll.sll_family = AF_PACKET;
+    addr_ll.sll_protocol = htons(ETH_P_ALL);
+    addr_ll.sll_ifindex = ifindex;
+    if (bind(sock, (struct sockaddr *)&addr_ll, sizeof(struct sockaddr_ll)) == -1) err(1, "bind");
+
+    return sock;
 }
 
-int net(pid_t pid)
+int maketap()
 {
-    // Initialize the netlink socket
-    char buf[4096];
-    int netfd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
-    if (netfd < 0) err(1, "socket(AF_NETLINK)");
+    struct ifreq req;
+    int fd = open("/dev/net/tun", O_RDWR | O_CLOEXEC);
+    if (fd == -1) err(1, "open(/dev/net/tun)");
 
-    struct sockaddr_nl sa;
-    sa.nl_family = AF_NETLINK;
-    sa.nl_groups = RTMGRP_LINK;
-    if (bind(netfd, (struct sockaddr *)&sa, sizeof(sa)) < 0) err(1, "bind(netfd)");
+    // Initialize the tap, which populates req.ifr_name for us
+    memset(&req, 0, sizeof(struct ifreq));
+    req.ifr_flags = IFF_TAP | IFF_NO_PI;
+    if (ioctl(fd, TUNSETIFF, &req) == -1) err(1, "ioctl(TUNSETIFF)");
 
-    struct
-    {
-        struct nlmsghdr hdr;
-        struct ifinfomsg ifinfo;
-        char attrbuf[512];
-    } req;
+    // Store the name
+    strncpy(tapname, req.ifr_name, IFNAMSIZ);
 
-    // Send a request to obtain the link index of the provided link
-    memset(&req, 0, sizeof(req));
-    req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
-    req.hdr.nlmsg_flags = NLM_F_REQUEST;
-    req.hdr.nlmsg_type = RTM_GETLINK;
+    // Initialize an arbitrary socket to configure the device
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == -1) err(1, "socket(AF_INET, SOCK_DGRAM, 0)");
 
-    req.ifinfo.ifi_family = AF_UNSPEC;
-    req.ifinfo.ifi_index = 0;
-    req.ifinfo.ifi_change = 0xFFFFFFFF; 
-
-    int n = 512;
-    struct rtattr *rta0 = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
-    rta0->rta_type = IFLA_IFNAME;
-    rta0->rta_len = RTA_LENGTH(strlen(ifname));
-    strcpy(RTA_DATA(rta0), ifname);
-    rta0 = RTA_NEXT(rta0, n);
-
-    req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
-
-    if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
-
-    n = read(netfd, buf, 4096);
-
-    int ifindex = 0;
-    for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-        if (hdr->nlmsg_type == NLMSG_DONE) {
-            break;
-        }
-
-        if (hdr->nlmsg_type == NLMSG_ERROR) {
-            struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-            if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
-        }
-
-        if (hdr->nlmsg_type == RTM_NEWLINK) {
-            memcpy(&req, hdr, sizeof(struct nlmsghdr) + sizeof(struct ifinfomsg));
-            ifindex = req.ifinfo.ifi_index;
-        }
-    }
-
-    if (!ifindex) err(1, "Interface %s does not exist.", ifname);
-
-    // Create the macvlan
-    memset(&req, 0, sizeof(req));
-    req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
-    req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE;
-    req.hdr.nlmsg_type = RTM_NEWLINK;
-
-    req.ifinfo.ifi_family = AF_UNSPEC;
-    req.ifinfo.ifi_index = 0;
-    req.ifinfo.ifi_change = 0xFFFFFFFF; 
-    req.ifinfo.ifi_flags = IFF_UP | IFF_BROADCAST | IFF_MULTICAST | IFF_RUNNING;
-
-    n = 512;
-
-    struct rtattr *rta = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
-
-    rta->rta_type = IFLA_LINK;
-    rta->rta_len = RTA_LENGTH(sizeof(ifindex));
-    memcpy(RTA_DATA(rta), &ifindex, sizeof(ifindex));
-    rta = RTA_NEXT(rta, n);
-
-    const char *macvlan = "macvlan0";
-    rta->rta_type = IFLA_IFNAME;
-    rta->rta_len = RTA_LENGTH(strlen(macvlan));
-    strcpy(RTA_DATA(rta), macvlan);
-    rta = RTA_NEXT(rta, n);
-
-    rta->rta_type = IFLA_NET_NS_PID;
-    rta->rta_len = RTA_LENGTH(sizeof(pid));
-    memcpy(RTA_DATA(rta), &pid, sizeof(pid));
-    rta = RTA_NEXT(rta, n);
-
+    // Set the mac address requested by the user (if any)
     if (mac[0] || mac[1] || mac[2] || mac[3] || mac[4] || mac[5]) {
-        rta->rta_type = IFLA_ADDRESS;
-        rta->rta_len = RTA_LENGTH(sizeof(mac));
-        memcpy(RTA_DATA(rta), mac, sizeof(mac));
-        rta = RTA_NEXT(rta, n);
+        req.ifr_hwaddr.sa_family = ARPHRD_ETHER;
+        memcpy(req.ifr_hwaddr.sa_data, mac, ETHER_ADDR_LEN);
+        if (ioctl(sock, SIOCSIFHWADDR, &req) == -1) err(1, "ioctl(SIOCSIFHWADDR)");
     }
 
-    rta->rta_type = IFLA_LINKINFO;
+    // Bring the tap up
+    req.ifr_flags = IFF_UP | IFF_RUNNING;
+    if (ioctl(sock, SIOCSIFFLAGS, &req) == -1) err(1, "ioctl(SIOCSIFFLAGS)");
 
-    int m = n;
-    struct rtattr *subrta = RTA_DATA(rta);
-    subrta->rta_type = IFLA_INFO_KIND;
-    subrta->rta_len = RTA_LENGTH(strlen("macvlan"));
-    strcpy(RTA_DATA(subrta), "macvlan");
-    subrta = RTA_NEXT(subrta, m);
+    close(sock);
 
-    /*subrta->rta_type = IFLA_INFO_DATA;
-    subrta->rta_len = RTA_LENGTH(8);
-    uint16_t data[] = { 8, IFLA_MACVLAN_MODE, MACVLAN_MODE_VEPA, 0 };
-    memcpy(RTA_DATA(subrta), data, 8);
-    subrta = RTA_NEXT(subrta, m);*/
-
-    rta->rta_len = RTA_LENGTH(n - m);
-    rta = RTA_NEXT(rta, n);
-
-    req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
-
-    if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
-
-    n = read(netfd, buf, 4096);
-
-    for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-        if (hdr->nlmsg_type == NLMSG_DONE) {
-            break;
-        }
-
-        if (hdr->nlmsg_type == NLMSG_ERROR) {
-            struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-            if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
-        }
-
-        if (hdr->nlmsg_type == RTM_NEWLINK) {
-            // Todo, we should be able to get the mac address here
-            // struct rtattr *rta = (struct rtattr *)(((char *)&hdr) + NLMSG_ALIGN(hdr->nlmsg_len));
-
-            memcpy(&req, hdr, sizeof(struct nlmsghdr) + sizeof(struct ifinfomsg));
-            return req.ifinfo.ifi_index;
-        }
-    }
-
-    return -1;
+    return fd;
 }

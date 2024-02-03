@@ -2,8 +2,12 @@
 #define NET_H
 
 #include <sys/types.h>
+#include <net/if.h>
+
+extern char tapname[IFNAMSIZ];
 
 void bringloup();
-int net(pid_t pid);
+int rawsock(char *ifname);
+int maketap();
 
 #endif

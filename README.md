@@ -1,4 +1,4 @@
-PODDOS
+Poddos
 ======
 
 `poddos` is a program that can be used to run Docker / OCI containers. It
@@ -36,4 +36,8 @@ Open items
 - Instead of `strncpy`, `strlcpy` (or a safer alternative) should be used.
 - There is no tooling to deal with layers, i.e., create and remove layers.
 - When pulling, the existing configuration is overwritten.
-- There are various statically allocated buffers in use, which should become dynamically allocated.
+- There are various statically allocated buffers in use, which should become
+  dynamically allocated.
+- The http client should simply call `err(...)` when an error occurs.
+- The DHCP client does not validate properly the length of its payload, so
+  malformed DHCP messages may lead to a buffer overflow.

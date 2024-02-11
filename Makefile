@@ -10,6 +10,6 @@ clean:
 install: poddos poddos@.service
 	install poddos /usr/local/bin/
 	setcap cap_net_admin,cap_net_raw+eip /usr/local/bin/poddos
-	install --mode=644 poddos@.service /etc/systemd/user/
+	install --mode=644 --compare poddos@.service /etc/systemd/user/
 uninstall:
 	-rm /usr/local/bin/poddos

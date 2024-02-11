@@ -315,8 +315,10 @@ void lstart(unsigned flags, char **argv, char **envp)
     // by default actually.
     if (mount("ignored", "/", "ignored", MS_PRIVATE | MS_REC, NULL) == -1) err(1, "mount(MS_PRIVATE | MS_REC)");
 
-    // In ephemeral mode, add another layer to the overlays, but make that a tmpfs
-    const char *userxattr = "userxattr";
+    // In ephemeral mode, add another layer to the overlays, but make that a
+    // tmpfs. Ephemeral mode is only properly supported with recent Linux
+    // kernels (as in, 6.6 and later), since it requires user extended attribute
+    // support.
     if (flags & LAYER_EPHEMERAL) {
         char ephemeral[PATH_MAX];
         snprintf(ephemeral, PATH_MAX, "%s/ephemeral", layer_path);
@@ -331,10 +333,6 @@ void lstart(unsigned flags, char **argv, char **envp)
         }
         snprintf(upperdir, PATH_MAX, "%s/upper", ephemeral);
         if (mkdir(upperdir, 0777) == -1) err(1, "mkdir(%s)", upperdir);
-
-        // If the top layer is a tmpfs, turn off userxattr, since it will fail
-        // syscalls with -EXDEV. TODO: The following is Ubuntu-specific.
-        userxattr = "nouserxattr";
     }
 
     // Build up the overlayfs; unless there is no lowerdir, since then there is no real overlay
@@ -347,7 +345,7 @@ void lstart(unsigned flags, char **argv, char **envp)
         if (mkdir(mergeddir, 0777) == -1 && errno != EEXIST) err(1, "mkdir(%s)", mergeddir);
 
         char data[4096];
-        snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,xino=off,%s", lowerdir, upperdir, workdir, userxattr);
+        snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,userxattr", lowerdir, upperdir, workdir);
 
         if (mount("none", mergeddir, "overlay", 0, data) == -1) err(1, "mount(%s, %s)", mergeddir, data);
     }

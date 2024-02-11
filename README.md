@@ -30,8 +30,10 @@ poddos --name ubuntu start
 
 Open items
 ----------
-- It looks like containers cannot connect to each other when assigned a macvlan.
-- DHCP does not release the IP when `poddos` exits.
-- The `FILE` stream helpers cache, which is not needed.
-- It cannot be configured whether a pty is generated or not.
-- Proper documentation (both code and usage) is lacking.
+- DHCP should try release its IP when `poddos` exits.
+- The `FILE` stream helpers should not cache.
+- A man page should be added.
+- Instead of `strncpy`, `strlcpy` (or a safer alternative) should be used.
+- There is no tooling to deal with layers, i.e., create and remove layers.
+- When pulling, the existing configuration is overwritten.
+- There are various statically allocated buffers in use, which should become dynamically allocated.

@@ -15,8 +15,8 @@
 #include "layer.h"
 
 static struct argp_option global_options[] = {
-	{"layer", 'l', "PATH", 0, "Path where layers are stored. Defaults to $XDG_DATA_HOME/poddos."},
-	{"name", 'n', "NAME", 0, "Assign a name to the container. This name will be the hostname of the container (if a UTS namespace is created), can be used to store configuration, and is used to create a pidfile.."},
+	{"layer", 'l', "PATH", 0, "Path where layers are stored. Defaults to the value of the environmental variable $LAYERPATH, or $XDG_DATA_HOME/poddos if unset (the latter usually resolves to ~/.local/share/poddos)."},
+	{"name", 'n', "NAME", 0, "Assign a name to the container. This name will be the hostname of the container (if a UTS namespace is created), can be used to store configuration, and is used to create a pidfile."},
 	{ 0 }
 };
 
@@ -26,13 +26,23 @@ static struct argp_option pull_options[] = {
 };
 
 static struct argp_option start_options[] = {
-	{"overlay", 'o', "PATH", 0, "Overlay paths, to be specified multiple times. Each path is overlayed on top of the previous one"},
-	{"env", 'e', "FOO=BAR", 0, "Environment variables added when executing, to be specified multiple times if needed"},
-	{"ephemeral", 'E', NULL, 0, "All modifications made in the mount namespace are thrown away"},
-	{"net", 1000, "INTERFACE", 0, "Put container in net namespace and initialize a macvlan (called macvlan0) in it. The provided interface is the one used for the macvlan. This option requires CAP_NET_ADMIN."},
-	{"mac", 1001, "MAC", 0, "If --net is provided, the mac address o,f the macvlan. If empty, kernel picks one randomly."},
-	{"bind", 1002, "FROM:TO", 0, "Mount the path <FROM> in the container to the path <TO>. <TO> can be omitted, and then it will appear in the same place as <FROM>."},
-	{"directory", 'C', "PATH", 0, "Change to the specified directory before executing the specified command."},
+	{"overlay", 'o', "PATH", 0, "Overlay paths, to be specified multiple times."
+	                            "Each path is overlayed on top of the previous one."
+								"Modifications to the container are stored in the last path (but see --ephemeral)."},
+	{"env", 'e', "FOO=BAR", 0, "Environment variables added when executing, to be specified multiple times if needed."},
+	{"ephemeral", 'E', NULL, 0, "All modifications made in the mount namespace are thrown away."
+	                            "This is done by making the top-level directory a tmpfs, and requires a kernel that supports user extended attributes on a tmpfs for full support (upstream that is since version 6.6)."},
+	{"net", 1000, "INTERFACE", 0, "Put container in net namespace and initialize a tap (usually called tap0) in it."
+	                              "All ethernet frames sent to the provided interface are forwarded to the tap and all ethernet frames sent to the tap are dumped on the interface."
+								  "The behavior is therefore similar to using a macvlan, with the advantage that the host can directly connect to all containers and a small performance penalty."
+								  "This usually only works with wired links and requires CAP_NET_ADMIN (to put the interface in promiscuous mode) and CAP_NET_RAW (to capture all ethernet frames)."},
+	{"mac", 1001, "MAC", 0, "If --net is provided, the mac address of the tap."
+	                        "If not provided, the kernel picks one randomly."},
+	{"bind", 1002, "FROM:TO", 0, "Mount the path <FROM> in the container to the path <TO>."
+	                             "<TO> can be omitted, and then it will appear in the same place as <FROM>."
+								 "All provided paths should be absolute paths."},
+	{"directory", 'C', "PATH", 0, "Change to the specified directory before executing the specified command."
+	                              "The specified directory should be an existing directory in the folder structure of the container."},
 	{ 0 }
 };
 
@@ -43,7 +53,6 @@ static struct argp_option exec_options[] = {
 
 char layer_path[PATH_MAX] = { 0 };
 int layer_fd = -1;
-char cmd[4096] = { 0 };
 const char *url = NULL;
 
 bool ephemeral = false;
@@ -66,6 +75,7 @@ char **bind_from = NULL, **bind_to = NULL;
 
 char *directory = NULL;
 
+// Count the number of files in the directory <name>. Includes "special files" .. and .
 int dircnt(const char *name)
 {
 	int ret = 0;
@@ -89,7 +99,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 				strcpy(lowerdir, buf);
 			}
 		}
-		snprintf(upperdir, 4096, "%s/%s", layer_path, arg);
+		if (arg[0] != '/') snprintf(upperdir, 4096, "%s/%s", layer_path, arg);
+		else strncpy(upperdir, arg, 4096);
 		break;
 	case 'e':
 		penvp = realloc(penvp, (++nenvp)*sizeof(char *));

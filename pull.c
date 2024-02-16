@@ -147,8 +147,7 @@ int pull(const char *full_url)
                     strcpy(strrchr(path, '/') + 1, strrchr(path, '/') + 5);
 
                     if (mknodat(dir_fd, path, 0777, makedev(0, 0)) == -1) err(1, "mknod(%s, 0777, (0, 0))", path);
-                }
-                tarwrite(file, data, dir_fd);
+                } else tarwrite(file, data, dir_fd);
                 fclose(data);
             }
             fclose(f);

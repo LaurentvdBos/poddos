@@ -41,3 +41,5 @@ Open items
 - The http client should simply call `err(...)` when an error occurs.
 - The DHCP client does not validate properly the length of its payload, so
   malformed DHCP messages may lead to a buffer overflow.
+- The client cannot connect to any of the containers if they use a network
+  namespace.

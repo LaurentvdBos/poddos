@@ -13,3 +13,4 @@ install: poddos poddos@.service
 	install --mode=644 --compare poddos@.service /etc/systemd/user/
 uninstall:
 	-rm /usr/local/bin/poddos
+	-rm /etc/systemd/user/poddos@.service

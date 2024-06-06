@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/random.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
@@ -414,9 +415,8 @@ int dhcpstart(char *ifname)
     struct ifreq req;
     int sock;
 
-    if (!xid) {
-        srand(time(NULL));
-        xid = rand();
+    while (!xid) {
+        if (getrandom(&xid, sizeof(xid), 0) == -1) err(1, "getrandom");
     }
 
     // Get a raw socket

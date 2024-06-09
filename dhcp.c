@@ -404,6 +404,8 @@ int dhcpstep(char *ifname, int sock)
         else {
             // In case of any other message (e.g., NACK) we go back to start
             yiaddr = siaddr = 0;
+
+            dhcpsend(sock);
         }
     }
 

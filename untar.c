@@ -212,7 +212,10 @@ FILE *untar(FILE *f, struct tarfile *file)
             else file->path[0] = 0;
             strncat(file->path, tar->path, 100);
         }
-        if (!(paxflags & PAX_LINKPATH)) strncpy(file->linkpath, tar->linkpath, 99);
+        if (!(paxflags & PAX_LINKPATH)) {
+            strncpy(file->linkpath, tar->linkpath, 100);
+            file->linkpath[100] = 0;
+        }
         file->mode = strtoul(tar->mode, NULL, 8);
         if (!(paxflags & PAX_UID)) file->uid = strtoul(tar->uid, NULL, 8);
         if (!(paxflags & PAX_GID)) file->gid = strtoul(tar->gid, NULL, 8);

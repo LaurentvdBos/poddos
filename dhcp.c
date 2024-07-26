@@ -192,6 +192,18 @@ uint8_t *optget(uint8_t *buf, enum dhcpopt which)
     return NULL;
 }
 
+int opttotlen(uint8_t *buf, int n)
+{
+    int m = 0;
+    while (m+1 < n && buf[m] != END) {
+        if (buf[m] == END) return m;
+        uint8_t len = buf[m+1];
+        m += len + 2;
+    }
+
+    return -1;
+}
+
 void addopt(uint8_t *buf, enum dhcpopt which, ...)
 {
     // Search for END and put the new op in there
@@ -271,7 +283,7 @@ void dhcpsend(int sock)
         addopt(opt, DHCP_MESSAGE_TYPE, REQUEST);
         addopt(opt, REQUESTED_IP_ADDRESS, yiaddr);
         addopt(opt, SERVER_IDENTIFIER, siaddr);
-        addopt(opt, PARAMETER_REQUEST_LIST, SUBNET_MASK, ROUTER, DOMAIN_NAME_SERVER, DOMAIN_NAME);
+        addopt(opt, PARAMETER_REQUEST_LIST, SUBNET_MASK, ROUTER, DOMAIN_NAME_SERVER, DOMAIN_NAME, 0);
         if (name) addopt(opt, HOST_NAME, strlen(name), name);
     }
 
@@ -325,7 +337,8 @@ int dhcpstep(char *ifname, int sock)
         ntohl(dhcphdr->magic) == MAGIC_COOKIE && // ... with the correct magic cookie ...
         ntohl(dhcphdr->xid) == xid && // ... our xid ...
         !memcmp(dhcphdr->chaddr, mac, ETHER_ADDR_LEN) && // ... our MAC address ...
-        dhcphdr->op == 0x02) { // ... and a response? ...
+        dhcphdr->op == 0x02 && // ... a response? ...
+        opttotlen((uint8_t *)(dhcphdr + 1), n - sizeof(struct iphdr) - sizeof(struct udphdr) - sizeof(struct dhcphdr)) >= 0) { // ... and not malformed?
         // ... then it is a DHCP package (probably)
 
         uint8_t *msgtype = optget((uint8_t *)(dhcphdr + 1), DHCP_MESSAGE_TYPE);

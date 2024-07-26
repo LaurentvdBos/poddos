@@ -43,3 +43,4 @@ Open items
   malformed DHCP messages may lead to a buffer overflow.
 - The client cannot connect to any of the containers if they use a network
   namespace.
+- Working directory is not properly parsed when pulling.

@@ -125,7 +125,7 @@ static ssize_t ssl_write(void *cookie, const char *buf, size_t size)
     case SSL_ERROR_NONE:
         return ret;
     case SSL_ERROR_SYSCALL:
-        perror("ssl_write");
+        err(1, "ssl_write");
     default:
         return 0;
     }

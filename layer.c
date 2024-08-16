@@ -302,7 +302,7 @@ void lstart(unsigned flags, char **argv, char **envp)
 
     unsigned uflags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID;
     if (flags & LAYER_NET) uflags |= CLONE_NEWNET | CLONE_NEWUTS;
-    unshare(uflags);
+    if (unshare(uflags) == -1) err(1, "unshare");
 
     close(pipefd[0]);
     close(pipefd[1]);
@@ -526,7 +526,7 @@ void lexec(unsigned flags, char **argv, char **envp)
 
     // Join all the namespaces that the container possibly has
     unsigned uflags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWUTS;
-    setns(pidfd, uflags);
+    if (setns(pidfd, uflags) == -1) err(1, "setns");
 
     close(pidfd);
 

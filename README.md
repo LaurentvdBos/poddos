@@ -44,3 +44,4 @@ Open items
 - The client cannot connect to any of the containers if they use a network
   namespace.
 - Working directory is not properly parsed when pulling.
+- Read-only bind mounts need to be implemented

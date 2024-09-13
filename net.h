@@ -4,10 +4,9 @@
 #include <sys/types.h>
 #include <net/if.h>
 
-extern char tapname[IFNAMSIZ];
+extern char *macvlan;
 
 void bringloup();
-int rawsock(char *ifname);
-int maketap();
+void makemacvlan(pid_t pid);
 
 #endif

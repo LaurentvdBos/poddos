@@ -27,7 +27,6 @@
 #include "dhcp.h"
 
 int namefd = -1, timefd = -1;
-int rawfd = -1, tapfd = -1;
 
 void makeugmap(pid_t pid)
 {
@@ -140,15 +139,13 @@ void forktochild()
         int sfd = signalfd(-1, &mask, SFD_CLOEXEC);
         if (sfd == -1) err(1, "signalfd");
 
-        nfds_t nfds = 8;
+        nfds_t nfds = 6;
         struct pollfd pfds[] = {
             { .fd = termfd, .events = 0 },
             { .fd = STDIN_FILENO, .events = 0 },
             { .fd = STDOUT_FILENO, .events = 0 },
             { .fd = -1, .events = POLLIN },
             { .fd = sfd, .events = POLLIN },
-            { .fd = tapfd, .events = POLLIN },
-            { .fd = rawfd, .events = POLLIN },
             { .fd = timefd, .events = POLLIN },
         };
 
@@ -187,7 +184,7 @@ void forktochild()
                 nout -= n;
             }
             if (pfds[3].revents & POLLIN) {
-                pfds[3].fd = dhcpstep(tapname, pfds[3].fd);
+                pfds[3].fd = dhcpstep(macvlan, pfds[3].fd);
 
                 if (pfds[3].fd < 0) {
                     // A negative value indicates that DHCP is done and we need to set a timeout
@@ -219,19 +216,9 @@ void forktochild()
                 }
             }
             if (pfds[5].revents & POLLIN) {
-                char buf[1518];
-                int n = read(tapfd, &buf, 1518);
-                if (write(rawfd, buf, n) == -1) err(1, "write(rawfd)");
-            }
-            if (pfds[6].revents & POLLIN) {
-                char buf[1518];
-                int n = read(rawfd, &buf, 1518);
-                if (write(tapfd, buf, n) == -1) err(1, "write(tapfd)");
-            }
-            if (pfds[7].revents & POLLIN) {
                 // Timer expiration indicates that we should renew the DHCP
                 if (pfds[3].fd > 0) close(pfds[3].fd);
-                pfds[3].fd = dhcpstart(tapname);
+                pfds[3].fd = dhcpstart(macvlan);
                 
                 // Set a timer to retry DHCP after 30 seconds
                 struct itimerspec val = {
@@ -244,8 +231,6 @@ void forktochild()
 
         close(sfd);
         close(timefd);
-        close(rawfd);
-        close(tapfd);
 
         int wstatus;
         if (wait(&wstatus) == -1) err(1, "wait");
@@ -284,6 +269,7 @@ void lstart(unsigned flags, char **argv, char **envp)
         char buf;
         if (read(pipefd[0], &buf, 1) > -1) {
             makeugmap(getppid());
+            if (flags & LAYER_NET) makemacvlan(getppid());
         }
 
         quick_exit(0);
@@ -297,8 +283,6 @@ void lstart(unsigned flags, char **argv, char **envp)
         namefd = open(namedir, O_DIRECTORY | O_CLOEXEC);
         if (namefd == -1) err(1, "open(%s)", namedir);
     }
-
-    if (flags & LAYER_NET) rawfd = rawsock(ifname);
 
     unsigned uflags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID;
     if (flags & LAYER_NET) uflags |= CLONE_NEWNET | CLONE_NEWUTS;
@@ -439,9 +423,6 @@ void lstart(unsigned flags, char **argv, char **envp)
     if (fd > -1) close(fd);
     if (mount("/old_root/dev/net/tun", "/dev/net/tun", "ignored", MS_BIND, NULL) == -1) err(1, "mount(/dev/net/tun)");
 
-    // Make a tap device in the network namespace
-    if (flags & LAYER_NET) tapfd = maketap();
-
     // Make a timer file descriptor before forking
     if ((timefd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC | TFD_NONBLOCK)) == -1) err(1, "timefd_create");
 
@@ -450,16 +431,14 @@ void lstart(unsigned flags, char **argv, char **envp)
 
     // Initialize DHCP
     if (flags & LAYER_NET) {
-        int sock = dhcpstart(tapname);
-        while (sock > 0) sock = dhcpstep(tapname, sock);
+        int sock = dhcpstart(macvlan);
+        while (sock > 0) sock = dhcpstep(macvlan, sock);
         struct itimerspec val = {
             .it_value = { .tv_sec = -sock, .tv_nsec = 0 },
             .it_interval = { 0 }
         };
         if (timerfd_settime(timefd, 0, &val, NULL) == -1) err(1, "timerfd_settime");
 
-        close(tapfd);
-        close(rawfd);
         close(timefd);
     }
 

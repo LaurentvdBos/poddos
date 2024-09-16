@@ -105,8 +105,6 @@ void makemacvlan(pid_t pid)
         }
     }
 
-    if (!ifindex) err(1, "Interface %s does not exist.", ifname);
-
     // Create the macvlan
     memset(&req, 0, sizeof(req));
     req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));

@@ -32,15 +32,16 @@ static struct argp_option start_options[] = {
 	{"env", 'e', "FOO=BAR", 0, "Environment variables added when executing, to be specified multiple times if needed."},
 	{"ephemeral", 'E', NULL, 0, "All modifications made in the mount namespace are thrown away. "
 	                            "This is done by making the top-level directory a tmpfs, and requires a kernel that supports user extended attributes on a tmpfs for full support (upstream that is since version 6.6)."},
-	{"net", 1000, "INTERFACE", 0, "Put container in net namespace and initialize a tap (usually called tap0) in it. "
-	                              "All ethernet frames sent to the provided interface are forwarded to the tap and all ethernet frames sent to the tap are dumped on the interface. "
-								  "The behavior is therefore similar to using a macvlan, with the advantage that the host can directly connect to all containers and a small performance penalty. "
-								  "This usually only works with wired links and requires CAP_NET_ADMIN (to put the interface in promiscuous mode) and CAP_NET_RAW (to capture all ethernet frames). "},
-	{"mac", 1001, "MAC", 0, "If --net is provided, the mac address of the tap."
+	{"net", 1000, "INTERFACE", 0, "Put container in net namespace and initialize a macvlan (usually called macvlan0) in it. "
+								  "The macvlan is put in bridge mode, such that all containers can connect to eachother directly. "
+								  "An IP (only v4) is obtained via DHCP, so there is a noticable lag when starting the container. "
+								  "Keep in mind that the host cannot directly connect to the containers, which is a known restriction of macvlans. "
+								  "This usually only works with wired links and requires CAP_NET_ADMIN."},
+	{"mac", 1001, "MAC", 0, "If --net is provided, the mac address of the macvlan. "
 	                        "If not provided, the kernel picks one randomly."},
 	{"bind", 1002, "FROM:TO", 0, "Mount the path <FROM> in the container to the path <TO>. "
 	                             "<TO> can be omitted, and then it will appear in the same place as <FROM>. "
-								 "All provided paths should be absolute paths. "},
+								 "All provided paths should be absolute paths."},
 	{"directory", 'C', "PATH", 0, "Change to the specified directory before executing the specified command. "
 	                              "The specified directory should be an existing directory in the folder structure of the container."},
 	{ 0 }

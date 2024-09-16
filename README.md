@@ -45,5 +45,3 @@ Open items
   namespace.
 - Working directory is not properly parsed when pulling.
 - Read-only bind mounts need to be implemented
-- IPv6 is not supported, which is intended, but blocks using Matter so this
-  should be documented explicitly.

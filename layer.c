@@ -329,7 +329,7 @@ void lstart(unsigned flags, char **argv, char **envp)
         if (mkdir(mergeddir, 0777) == -1 && errno != EEXIST) err(1, "mkdir(%s)", mergeddir);
 
         char data[4096];
-        snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,userxattr", lowerdir, upperdir, workdir);
+        snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,xino=off,userxattr", lowerdir, upperdir, workdir);
 
         if (mount("none", mergeddir, "overlay", 0, data) == -1) err(1, "mount(%s, %s)", mergeddir, data);
     }

@@ -45,3 +45,12 @@ Open items
   namespace.
 - Working directory is not properly parsed when pulling.
 - Read-only bind mounts need to be implemented
+
+Security
+--------
+Keep in mind that `poddos` does not make any attempt to secure processes in your
+container to break out of the namespace. In fact, there are known methods to do
+this (e.g., via the /proc/**/exe symlink). This is intentional: the goal of this
+software is to run *trusted* containers on a system as first-level clients on a
+network. Do not use it to run containers you cannot trust or that have known
+security issues.

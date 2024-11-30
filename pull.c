@@ -184,13 +184,12 @@ int pull(const char *full_url)
         else name2 = name2 + 1;
 
         int fd = openat(layer_fd, name2, O_WRONLY | O_CREAT | O_EXCL | O_TRUNC, 0644);
-        if (fd == -1) {
-            if (errno == EEXIST) {
-                // Print a warning and put the configuration on stdout
-                fprintf(stderr, "Configuration already exists; will print pulled configuration to stdout.");
-                fd = STDOUT_FILENO;
-            } else err(1, "open(%s)", name2);
+        if (fd == -1 && errno == EEXIST) {
+            // Print a warning and put the configuration on stdout
+            fprintf(stderr, "Configuration already exists; will print pulled configuration to stdout.");
+            fd = dup(STDOUT_FILENO);
         }
+        if (fd == -1) err(1, "open(%s)", name2);
         FILE *f = fdopen(fd, "w");
         fprintf(f, "[pull]\n--url=%s\n\n", full_url);
 

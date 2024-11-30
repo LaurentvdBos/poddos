@@ -196,6 +196,7 @@ int loadargs(char ***argv, char *action)
 			*argv = realloc(*argv, (++argc) * sizeof(char **));
 			if (!*argv) err(1, "realloc");
 			(*argv)[argc-1] = malloc(strlen(buf) + 1);
+			if (!(*argv)[argc-1]) err(1, "malloc");
 			strcpy((*argv)[argc-1], buf);
 		}
 	}

@@ -151,6 +151,7 @@ void forktochild()
 
         char bufin[1024], bufout[1024];
         int nin = 0, nout = 0;
+        int goout = 0;
         for (;;) {
             if (termfd > -1) {
                 pfds[0].events = (nin ? POLLOUT : 0) | (!nout ? POLLIN : 0);
@@ -176,6 +177,11 @@ void forktochild()
             }
             if (pfds[1].revents & POLLIN) {
                 if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1) err(1, "read(stdin)");
+
+                // ^] is the group seperator in ASCII, hex 0x1D. If it is
+                // pressed three times consecutively, we go out immediately.
+                for (int i = 0; i < nin; i++) goout = (bufin[i] == 0x1D ? goout+1 : 0);
+                if (goout >= 3) kill(pid, SIGKILL);
             }
             if (pfds[2].revents & POLLOUT) {
                 ssize_t n;

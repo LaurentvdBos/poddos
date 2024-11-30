@@ -189,6 +189,7 @@ int pull(const char *full_url)
         fprintf(f, "[pull]\n--url=%s\n\n", full_url);
 
         fprintf(f, "[start]\n");
+        fprintf(f, "--ephemeral\n");
 
         for (int i = 0; (layer = jindex(layers, i)); i++) {
             char digest[1000];

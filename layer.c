@@ -99,16 +99,38 @@ void makeugmap(pid_t pid)
 void forktochild()
 {
     struct termios termp;
-    int termfd = -1;
+    int infd = -1, outfd = -1, errfd = -1;
+    const int istty = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
     pid_t pid;
-    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
+    if (istty) {
         struct winsize ws;
         if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1) err(1, "ioctl(TIOCGWINSZ)");
         tcgetattr(STDIN_FILENO, &termp);
-        pid = forkpty(&termfd, NULL, &termp, &ws);
+        pid = forkpty(&infd, NULL, &termp, &ws);
+        outfd = infd;
     }
     else {
+        int infds[2], outfds[2], errfds[2];
+        if (pipe2(infds, O_CLOEXEC) == -1 || pipe2(outfds, O_CLOEXEC) == -1 || pipe2(errfds, O_CLOEXEC) == -1) err(1, "pipe");
+        infd = infds[1];
+        outfd = outfds[0];
+        errfd = errfds[0];
+        
         pid = fork();
+
+        if (pid > 0) {
+            close(infds[0]);
+            close(outfds[1]);
+            close(errfds[1]);
+        }
+        if (pid == 0) {
+            close(infds[1]);
+            close(outfds[0]);
+            close(errfds[0]);
+            dup2(infds[0], STDIN_FILENO);
+            dup2(outfds[1], STDOUT_FILENO);
+            dup2(errfds[1], STDERR_FILENO);
+        }
     }
 
     if (pid == -1) err(1, "fork");
@@ -121,7 +143,7 @@ void forktochild()
             fclose(f);
         }
 
-        if (termfd > 0) {
+        if (istty) {
             struct termios termp_raw = { 0 };
             cfmakeraw(&termp_raw);
             tcsetattr(STDIN_FILENO, TCSADRAIN, &termp_raw);
@@ -139,25 +161,29 @@ void forktochild()
         int sfd = signalfd(-1, &mask, SFD_CLOEXEC);
         if (sfd == -1) err(1, "signalfd");
 
-        nfds_t nfds = 6;
+        const nfds_t nfds = 9;
         struct pollfd pfds[] = {
-            { .fd = termfd, .events = 0 },
+            { .fd = infd, .events = 0 },
+            { .fd = outfd, .events = 0 },
+            { .fd = errfd, .events = 0 },
             { .fd = STDIN_FILENO, .events = 0 },
             { .fd = STDOUT_FILENO, .events = 0 },
+            { .fd = STDERR_FILENO, .events = 0 },
             { .fd = -1, .events = POLLIN },
             { .fd = sfd, .events = POLLIN },
             { .fd = timefd, .events = POLLIN },
         };
 
-        char bufin[1024], bufout[1024];
-        int nin = 0, nout = 0;
+        char bufin[1024], bufout[1024], buferr[1024];
+        int nin = 0, nout = 0, nerr = 0;
         int goout = 0;
         for (;;) {
-            if (termfd > -1) {
-                pfds[0].events = (nin ? POLLOUT : 0) | (!nout ? POLLIN : 0);
-                pfds[1].events = (!nin ? POLLIN : 0);
-                pfds[2].events = (nout ? POLLOUT : 0);
-            }
+            pfds[0].events = nin ? POLLOUT : 0;
+            pfds[1].events = !nout ? POLLIN : 0;
+            pfds[2].events = !nerr ? POLLIN : 0;
+            pfds[3].events = !nin ? POLLIN : 0;
+            pfds[4].events = nout ? POLLOUT : 0;
+            pfds[5].events = nerr ? POLLOUT : 0;
 
             if (poll(pfds, nfds, -1) == -1) {
                 if (errno == EINTR) continue;
@@ -165,17 +191,20 @@ void forktochild()
             }
             if (pfds[0].events & POLLOUT) {
                 ssize_t n;
-                if ((n = write(termfd, bufin, nin)) == -1) err(1, "write(fd)");
+                if ((n = write(infd, bufin, nin)) == -1) err(1, "write(infd)");
                 memmove(bufin, bufin+n, nin-n);
                 nin -= n;
             }
-            if (pfds[0].revents & POLLIN) {
-                if ((nout = read(termfd, bufout, 1024)) == -1) err(1, "read(fd)");
+            if (pfds[1].revents & POLLIN) {
+                if ((nout = read(outfd, bufout, 1024)) == -1) err(1, "read(outfd)");
             }
-            if (pfds[0].revents & POLLHUP) {
+            if (pfds[2].revents & POLLIN) {
+                if ((nerr = read(errfd, buferr, 1024)) == -1) err(1, "read(errfd)");
+            }
+            if (pfds[1].revents & POLLHUP || pfds[2].revents & POLLHUP) {
                 break;
             }
-            if (pfds[1].revents & POLLIN) {
+            if (pfds[3].revents & POLLIN) {
                 if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1) err(1, "read(stdin)");
 
                 // ^] is the group seperator in ASCII, hex 0x1D. If it is
@@ -183,34 +212,40 @@ void forktochild()
                 for (int i = 0; i < nin; i++) goout = (bufin[i] == 0x1D ? goout+1 : 0);
                 if (goout >= 3) kill(pid, SIGKILL);
             }
-            if (pfds[2].revents & POLLOUT) {
+            if (pfds[4].revents & POLLOUT) {
                 ssize_t n;
                 if ((n = write(STDOUT_FILENO, bufout, nout)) == -1) err(1, "write(stdout)");
                 memmove(bufout, bufout+n, nout-n);
                 nout -= n;
             }
-            if (pfds[3].revents & POLLIN) {
-                pfds[3].fd = dhcpstep(macvlan, pfds[3].fd);
+            if (pfds[5].revents & POLLOUT) {
+                ssize_t n;
+                if ((n = write(STDERR_FILENO, buferr, nerr)) == -1) err(1, "write(stderr)");
+                memmove(buferr, buferr+n, nerr-n);
+                nerr -= n;
+            }
+            if (pfds[6].revents & POLLIN) {
+                pfds[6].fd = dhcpstep(macvlan, pfds[6].fd);
 
-                if (pfds[3].fd < 0) {
+                if (pfds[6].fd < 0) {
                     // A negative value indicates that DHCP is done and we need to set a timeout
                     struct itimerspec val = {
-                        .it_value = { .tv_sec = -pfds[3].fd, .tv_nsec = 0 },
+                        .it_value = { .tv_sec = -pfds[6].fd, .tv_nsec = 0 },
                         .it_interval = { 0 }
                     };
                     if (timerfd_settime(timefd, 0, &val, NULL) == -1) err(1, "timerfd_settime");
                 }
             }
-            if (pfds[4].revents & POLLIN) {
+            if (pfds[7].revents & POLLIN) {
                 struct signalfd_siginfo fdsi;
                 int n = read(sfd, &fdsi, sizeof(fdsi));
                 if (n != sizeof(fdsi)) err(1, "read(sfd)");
 
-                if (fdsi.ssi_signo == SIGWINCH && termfd > 0) {
+                if (fdsi.ssi_signo == SIGWINCH && istty) {
                     // SIGWINCH should not be blindly forwarded, but handled via an ioctl
                     struct winsize ws;
                     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1) err(1, "ioctl(TIOCGWINSZ)");
-                    if (ioctl(termfd, TIOCSWINSZ, &ws) == -1) err(1, "ioctl(TIOCSWINSZ)");
+                    if (ioctl(infd, TIOCSWINSZ, &ws) == -1) err(1, "ioctl(TIOCSWINSZ)");
                 }
                 else if (fdsi.ssi_signo == SIGCHLD) {
                     // SIGCHLD indicates that the child exited
@@ -221,10 +256,10 @@ void forktochild()
                     kill(pid, fdsi.ssi_signo);
                 }
             }
-            if (pfds[5].revents & POLLIN) {
+            if (pfds[8].revents & POLLIN) {
                 // Timer expiration indicates that we should renew the DHCP
-                if (pfds[3].fd > 0) close(pfds[3].fd);
-                pfds[3].fd = dhcpstart(macvlan);
+                if (pfds[6].fd > 0) close(pfds[6].fd);
+                pfds[6].fd = dhcpstart(macvlan);
                 
                 // Set a timer to retry DHCP after 30 seconds
                 struct itimerspec val = {
@@ -241,7 +276,7 @@ void forktochild()
         int wstatus;
         if (wait(&wstatus) == -1) err(1, "wait");
 
-        if (termfd > 0) tcsetattr(STDIN_FILENO, TCSADRAIN, &termp);
+        if (istty) tcsetattr(STDIN_FILENO, TCSADRAIN, &termp);
         if (namefd > 0) unlinkat(namefd, name, 0);
 
         if (WIFEXITED(wstatus)) exit(WEXITSTATUS(wstatus));

@@ -42,6 +42,8 @@ int sendnl(int fd, struct nlmsghdr *hdr)
 
     memset(&sa, 0, sizeof(sa));
     sa.nl_family = AF_NETLINK;
+    sa.nl_groups = RTMGRP_LINK;
+    sa.nl_pid = 0;
     hdr->nlmsg_pid = 0;
     hdr->nlmsg_seq = seq++;
 
@@ -58,6 +60,7 @@ void makemacvlan(pid_t pid)
     struct sockaddr_nl sa;
     sa.nl_family = AF_NETLINK;
     sa.nl_groups = RTMGRP_LINK;
+    sa.nl_pid = 0;
     if (bind(netfd, (struct sockaddr *)&sa, sizeof(sa)) < 0) err(1, "bind(netfd)");
 
     struct
@@ -88,7 +91,7 @@ void makemacvlan(pid_t pid)
 
     if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
 
-    n = read(netfd, buf, 4096);
+    if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
 
     int ifindex = 0;
     for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
@@ -164,7 +167,7 @@ void makemacvlan(pid_t pid)
 
     if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
 
-    n = read(netfd, buf, 4096);
+    if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
 
     for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
         if (hdr->nlmsg_type == NLMSG_DONE) break;

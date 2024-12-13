@@ -387,9 +387,10 @@ void lstart(unsigned flags, char **argv, char **envp)
         if (mount(upperdir, mergeddir, "ignored", MS_BIND, NULL) == -1) err(1, "mount(%s, %s, MS_BIND)", upperdir, mergeddir);
     }
 
-    // Add bind mounts to configure networking, in case we are not in a separate
-    // namespace; we do this before the pivot root such that symlinks resolve
-    // correctly.
+    // Configure networking: without separate networking, the configuration
+    // files are simply bind mounted. Otherwise, /etc/hostname is populated by
+    // the container name, /etc/resolv.conf is populated by dhcp, and
+    // /etc/hosts is populated by the host /etc/hosts (but not bind mounted).
     if (!(flags & LAYER_NET)) {
         const char *files[] = { "/etc/hosts", "/etc/hostname", "/etc/resolv.conf", NULL };
         for (int i = 0; files[i]; i++) {
@@ -407,6 +408,21 @@ void lstart(unsigned flags, char **argv, char **envp)
     }
     else {
         char path[PATH_MAX];
+
+        // Copy /etc/hosts contents
+        snprintf(path, PATH_MAX, "%s/etc/hosts", mergeddir);
+        FILE *f1 = fopen("/etc/hosts", "r");
+        if (!f1) err(1, "fopen(%s)", "/etc/hosts");
+        FILE *f2 = fopen(path, "w");
+        if (!f2) err(1, "fopen(%s)", path);
+        int c;
+        while ((c = fgetc(f1)) != EOF) {
+            fputc(c, f2);
+        }
+        fclose(f1);
+        fclose(f2);
+
+        // Populate /etc/hostname
         snprintf(path, PATH_MAX, "%s/etc/hostname", mergeddir);
 
         char host[HOST_NAME_MAX + 1] = { 0 };

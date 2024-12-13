@@ -189,7 +189,7 @@ void forktochild()
                 if (errno == EINTR) continue;
                 err(1, "poll");
             }
-            if (pfds[0].events & POLLOUT) {
+            if (pfds[0].revents & POLLOUT) {
                 ssize_t n;
                 if ((n = write(infd, bufin, nin)) == -1) err(1, "write(infd)");
                 memmove(bufin, bufin+n, nin-n);
@@ -206,6 +206,13 @@ void forktochild()
             }
             if (pfds[3].revents & POLLIN) {
                 if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1) err(1, "read(stdin)");
+
+                if (!nin) {
+                    // stdin is end of file, so closed
+                    close(infd);
+                    pfds[0].fd = -1;
+                    pfds[3].fd = -1;
+                }
 
                 // ^] is the group seperator in ASCII, hex 0x1D. If it is
                 // pressed three times consecutively, we go out immediately.

@@ -167,14 +167,19 @@ void makemacvlan(pid_t pid)
 
     if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
 
-    if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
+    // Wait for acknowledgement or error, whichever comes first
+    int ack = 0;
+    while (!ack) {
+        if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
 
-    for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-        if (hdr->nlmsg_type == NLMSG_DONE) break;
+        for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+            if (hdr->nlmsg_type == NLMSG_DONE) break;
 
-        if (hdr->nlmsg_type == NLMSG_ERROR) {
-            struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-            if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
+            if (hdr->nlmsg_type == NLMSG_ERROR) {
+                struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
+                if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
+                if (nlerr->error == 0) ack = 1;
+            }
         }
     }
 }

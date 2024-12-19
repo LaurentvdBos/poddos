@@ -283,6 +283,8 @@ void forktochild()
         int wstatus;
         if (wait(&wstatus) == -1) err(1, "wait");
 
+        ifremove(macvlan);
+
         if (istty) tcsetattr(STDIN_FILENO, TCSADRAIN, &termp);
         if (namefd > 0) unlinkat(namefd, name, 0);
 

@@ -283,7 +283,21 @@ void forktochild()
         int wstatus;
         if (wait(&wstatus) == -1) err(1, "wait");
 
-        ifremove(macvlan);
+        // See if the namespace is empty now by trying to fork; if it fails, we
+        // remove the macvlan. In some cases, the kernel does not do that
+        // properly for us, leaving the mac address occupied.
+        switch (fork()) {
+            case -1:
+                // Fork failed: if ENOMEM, the namespace is empty.
+                if (errno == ENOMEM) ifremove(macvlan);
+                break;
+            case 0:
+                // We are the child; nothing to do.
+                quick_exit(0);
+            default:
+                // We are the parent; wait for the child and carry on.
+                if (wait(&wstatus) == -1) err(1, "wait");
+        }
 
         if (istty) tcsetattr(STDIN_FILENO, TCSADRAIN, &termp);
         if (namefd > 0) unlinkat(namefd, name, 0);

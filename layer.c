@@ -190,21 +190,22 @@ void forktochild()
                 err(1, "poll");
             }
             if (pfds[0].revents & POLLOUT) {
+                // stdin of the process is writable, and we have stuff to write
                 ssize_t n;
                 if ((n = write(infd, bufin, nin)) == -1) err(1, "write(infd)");
                 memmove(bufin, bufin+n, nin-n);
                 nin -= n;
             }
             if (pfds[1].revents & POLLIN) {
+                // stdout of process contains data, and we have an empty buffer
                 if ((nout = read(outfd, bufout, 1024)) == -1) err(1, "read(outfd)");
             }
             if (pfds[2].revents & POLLIN) {
+                // stderr of process contains data, and we have an empty buffer
                 if ((nerr = read(errfd, buferr, 1024)) == -1) err(1, "read(errfd)");
             }
-            if (pfds[1].revents & POLLHUP || pfds[2].revents & POLLHUP) {
-                break;
-            }
             if (pfds[3].revents & POLLIN) {
+                // Our stdin has data
                 if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1) err(1, "read(stdin)");
 
                 if (!nin) {
@@ -220,18 +221,33 @@ void forktochild()
                 if (goout >= 3) kill(pid, SIGKILL);
             }
             if (pfds[4].revents & POLLOUT) {
+                // Our stdout is writable, and we have stuff to write
                 ssize_t n;
                 if ((n = write(STDOUT_FILENO, bufout, nout)) == -1) err(1, "write(stdout)");
                 memmove(bufout, bufout+n, nout-n);
                 nout -= n;
             }
             if (pfds[5].revents & POLLOUT) {
+                // Our stderr is writable, and we have stuff to write
                 ssize_t n;
                 if ((n = write(STDERR_FILENO, buferr, nerr)) == -1) err(1, "write(stderr)");
                 memmove(buferr, buferr+n, nerr-n);
                 nerr -= n;
             }
+            if (pfds[1].revents & POLLHUP) {
+                // stdout of process hang up, close stdout and stop watching
+                pfds[1].fd = -1;
+                pfds[4].fd = -1;
+                close(STDOUT_FILENO);
+            }
+            if (pfds[2].revents & POLLHUP) {
+                // stderr of process hung up, close stderr and stop watching
+                pfds[2].fd = -1;
+                pfds[5].fd = -1;
+                close(STDERR_FILENO);
+            }
             if (pfds[6].revents & POLLIN) {
+                // The socket used for DHCP got data
                 pfds[6].fd = dhcpstep(macvlan, pfds[6].fd);
 
                 if (pfds[6].fd < 0) {
@@ -244,6 +260,7 @@ void forktochild()
                 }
             }
             if (pfds[7].revents & POLLIN) {
+                // We received a signal
                 struct signalfd_siginfo fdsi;
                 int n = read(sfd, &fdsi, sizeof(fdsi));
                 if (n != sizeof(fdsi)) err(1, "read(sfd)");
@@ -283,21 +300,10 @@ void forktochild()
         int wstatus;
         if (wait(&wstatus) == -1) err(1, "wait");
 
-        // See if the namespace is empty now by trying to fork; if it fails, we
-        // remove the macvlan. In some cases, the kernel does not do that
-        // properly for us, leaving the mac address occupied.
-        switch (fork()) {
-            case -1:
-                // Fork failed: if ENOMEM, the namespace is empty.
-                if (errno == ENOMEM) ifremove(macvlan);
-                break;
-            case 0:
-                // We are the child; nothing to do.
-                quick_exit(0);
-            default:
-                // We are the parent; wait for the child and carry on.
-                if (wait(&wstatus) == -1) err(1, "wait");
-        }
+	// Remove the macvlan, init is going to leave the namespace and
+	// in some cases the kernel does not properly clean up the
+	// network namespace.
+	if (timefd > 0) ifremove(macvlan);
 
         if (istty) tcsetattr(STDIN_FILENO, TCSADRAIN, &termp);
         if (namefd > 0) unlinkat(namefd, name, 0);
@@ -504,7 +510,7 @@ void lstart(unsigned flags, char **argv, char **envp)
     if (mount("/old_root/dev/net/tun", "/dev/net/tun", "ignored", MS_BIND, NULL) == -1) err(1, "mount(/dev/net/tun)");
 
     // Make a timer file descriptor before forking
-    if ((timefd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC | TFD_NONBLOCK)) == -1) err(1, "timefd_create");
+    if ((flags & LAYER_NET) && (timefd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC | TFD_NONBLOCK)) == -1) err(1, "timefd_create");
 
     // Fork to get pid 1, this will also get us a pty if needed
     forktochild();

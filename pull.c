@@ -179,6 +179,8 @@ int pull(const char *full_url)
         if (!feof(f)) errx(1, "Buffer too small.");
         fclose(f);
 
+	fprintf(stderr, "Pulled config: %s\n", config);
+
         const char *name2 = strrchr(name, '/');
         if (!name2) name2 = name;
         else name2 = name2 + 1;
@@ -209,6 +211,11 @@ int pull(const char *full_url)
             if (jstr(envir, buf, 1000) == -1) errx(1, "Could not parse environmental variables");
 
             fprintf(f, "--env=%s\n", buf);
+        }
+
+        char working_dir[PATH_MAX];
+        if (jstr(jget(jget(config, "config"), "WorkingDir"), working_dir, PATH_MAX) != -1) {
+            fprintf(f, "--directory=%s\n", working_dir);
         }
 
         const char *entry_point;

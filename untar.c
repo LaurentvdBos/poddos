@@ -208,9 +208,11 @@ FILE *untar(FILE *f, struct tarfile *file)
             if (tar->prefix[0]) {
                 strncpy(file->path, tar->prefix, 155);
                 strcat(file->path, "/");
+                file->path[156] = 0;
             }
             else file->path[0] = 0;
             strncat(file->path, tar->path, 100);
+            file->path[256] = 0;
         }
         if (!(paxflags & PAX_LINKPATH)) {
             strncpy(file->linkpath, tar->linkpath, 100);

@@ -134,7 +134,7 @@ static ssize_t ssl_write(void *cookie, const char *buf, size_t size)
 FILE *urlopen(char *url, unsigned flags, const char *accept)
 {
     bool is_https;
-    char host[URLLEN+1], port[URLLEN+1], path[URLLEN+1];
+    char host[URL_MAX+1], port[URL_MAX+1], path[URL_MAX+1];
 
     int sock = -1;
     SSL *ssl = NULL;
@@ -246,7 +246,7 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
             fprintf(stderr, "HTTP %d: %s, Bearer %s\n", code, msg, header);
             fclose(f);
 
-            char bearer_url[URLLEN] = { 0 }, bearer_query[URLLEN] = { 0 };
+            char bearer_url[URL_MAX] = { 0 }, bearer_query[URL_MAX] = { 0 };
             int n = 0;
 
             FILE *fs = fmemopen(header, 1024, "r");

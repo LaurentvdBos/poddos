@@ -33,10 +33,10 @@
 
 int pull(const char *full_url)
 {
-    char url[URLLEN+1], name[URLLEN+1], ref[URLLEN+1], url2[URLLEN+1];
+    char url[URL_MAX+1], name[URL_MAX+1], ref[URL_MAX+1], url2[URL_MAX+1];
 
     if (sscanf(full_url, "%1000[^/]/%1000[^:]:%1000s", url, name, ref) != 3) return -1;
-    snprintf(url2, URLLEN, "https://%s/v2/%s/manifests/%s", url, name, ref);
+    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, name, ref);
 
     fprintf(stderr, "Retrieving available manifests...\n");
 
@@ -81,7 +81,7 @@ int pull(const char *full_url)
     if (jstr(digest, digest2, 100) == -1) return -1;
     fprintf(stderr, "Retrieving manifest (%s)...\n", digest2);
 
-    snprintf(url2, URLLEN, "https://%s/v2/%s/manifests/%s", url, name, digest2);
+    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, name, digest2);
     f = urlopen(url2, 0, "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json");
     if (!f) return -1;
     n = fread(json, 1, 65536, f);
@@ -125,7 +125,7 @@ int pull(const char *full_url)
             if (jstr(jget(layer, "mediaType"), media_type, 100) == -1) return -1;
 
             fprintf(stderr, "Pulling %s...\n", digest);
-            snprintf(url2, URLLEN, "https://%s/v2/%s/blobs/%s", url, name, digest);
+            snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, name, digest);
 
             f = urlopen(url2, 0, media_type);
             if (!f) return -1;
@@ -172,31 +172,23 @@ int pull(const char *full_url)
         if (jstr(jget(jget(json, "config"), "digest"), digest, 100) == -1) return -1;
 
         char config[65536] = { 0 };
-        snprintf(url2, URLLEN, "https://%s/v2/%s/blobs/%s", url, name, digest);
+        snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, name, digest);
         f = urlopen(url2, 0, "application/vnd.docker.container.image.v1+json, application/vnd.oci.image.config.v1+json");
         if (!f) err(1, "Could not download configuration");
         n = fread(config, 1, 65536, f);
         if (!feof(f)) errx(1, "Buffer too small.");
         fclose(f);
 
-	fprintf(stderr, "Pulled config: %s\n", config);
-
         const char *name2 = strrchr(name, '/');
         if (!name2) name2 = name;
         else name2 = name2 + 1;
 
-        int fd = openat(layer_fd, name2, O_WRONLY | O_CREAT | O_EXCL | O_TRUNC, 0644);
-        if (fd == -1 && errno == EEXIST) {
-            // Print a warning and put the configuration on stdout
-            fprintf(stderr, "Configuration already exists; will print pulled configuration to stdout.\n");
-            fd = dup(STDOUT_FILENO);
-        }
+        int fd = openat(layer_fd, name2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd == -1) err(1, "open(%s)", name2);
         FILE *f = fdopen(fd, "w");
         fprintf(f, "[pull]\n--url=%s\n\n", full_url);
 
         fprintf(f, "[start]\n");
-        fprintf(f, "--ephemeral\n");
 
         for (int i = 0; (layer = jindex(layers, i)); i++) {
             char digest[1000];

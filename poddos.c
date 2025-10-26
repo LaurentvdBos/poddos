@@ -172,7 +172,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
-int loadargs(char ***argv, char *action)
+int loadconfig(char ***argv, char *action, char *override)
 {
 	int argc = 1;
 	*argv = malloc(sizeof(char **));
@@ -181,7 +181,9 @@ int loadargs(char ***argv, char *action)
 	if (!(*argv)[0]) err(1, "malloc");
 	sprintf((*argv)[0], "%s-%s", "poddos", action);
 
-	int fd = openat(layer_fd, name, O_RDONLY);
+	char file[PATH_MAX];
+	snprintf(file, PATH_MAX, "%s%s", name, override);
+	int fd = openat(layer_fd, file, O_RDONLY);
 	if (fd == -1) return argc;
 	FILE *f = fdopen(fd, "r");
 
@@ -247,9 +249,13 @@ int main(int argc, char **argv)
 	if (layer_fd == -1) err(1, "open(%s)", layer_path);
 	if (mkdirat(layer_fd, "ephemeral", 0777) == -1 && errno != EEXIST) err(1, "mkdir(ephemeral)");
 
-	int argc2 = 0;
-	char **argv2 = NULL;
-	if (name) argc2 = loadargs(&argv2, argv[arg_index]);
+	int argc_from_config = 0;
+	char **argv_from_config = NULL;
+	if (name) argc_from_config = loadconfig(&argv_from_config, argv[arg_index], "");
+
+	int argc_from_override = 0;
+	char **argv_from_override = NULL;
+	if (name) argc_from_override = loadconfig(&argv_from_override, argv[arg_index], ".2");
 
 	if (!strcmp(argv[arg_index], "pull")) {
 		argv[arg_index] = "poddos-pull";
@@ -257,7 +263,8 @@ int main(int argc, char **argv)
 			.options = pull_options,
 			.parser = parse_opt,
 		};
-		if (argc2) argp_parse(&argp, argc2, argv2, ARGP_IN_ORDER, NULL, NULL);
+		if (argc_from_config) argp_parse(&argp, argc_from_config, argv_from_config, ARGP_IN_ORDER, NULL, NULL);
+		if (argc_from_override) argp_parse(&argp, argc_from_override, argv_from_override, ARGP_IN_ORDER, NULL, NULL);
 		argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, NULL, NULL);
 
 		pull(url);
@@ -269,19 +276,21 @@ int main(int argc, char **argv)
 			.parser = parse_opt,
 			.args_doc = "[CMD...]"
 		};
-		int cmd_index = 0, cmd_index_2 = 0;
-		if (argc2) argp_parse(&argp, argc2, argv2, ARGP_IN_ORDER, &cmd_index_2, NULL);
+		int cmd_index = 0, cmd_index_from_config = 0, cmd_index_from_override = 0;
+		if (argc_from_config) argp_parse(&argp, argc_from_config, argv_from_config, ARGP_IN_ORDER, &cmd_index_from_config, NULL);
+		if (argc_from_override) argp_parse(&argp, argc_from_override, argv_from_override, ARGP_IN_ORDER, &cmd_index_from_override, NULL);
 		argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, &cmd_index, NULL);
 
 		if (!upperdir[0]) errx(1, "At least one overlay directory should be provided");
-		if (arg_index + cmd_index >= argc && cmd_index_2 >= argc2) errx(1, "No command to exeute");
+		if (arg_index + cmd_index >= argc && cmd_index_from_config >= argc_from_config && cmd_index_from_override >= argc_from_override) errx(1, "No command to exeute");
 
 		penvp = realloc(penvp, (++nenvp)*sizeof(char *));
 		if (!penvp) err(1, "realloc(penvp)");
 		penvp[nenvp-1] = NULL;
 
 		if (arg_index + cmd_index < argc) pargv = argv + arg_index + cmd_index;
-		else pargv = argv2 + cmd_index_2;
+		else if (cmd_index_from_override < argc_from_override) pargv = argv_from_override + cmd_index_from_override;
+		else pargv = argv_from_config + cmd_index_from_config;
 
 		unsigned flags = 0;
 		if (ephemeral) flags |= LAYER_EPHEMERAL;
@@ -296,19 +305,20 @@ int main(int argc, char **argv)
 			.parser = parse_opt,
 			.args_doc = "[CMD...]"
 		};
-		int cmd_index = 0, cmd_index_2 = 0;
-		if (argc2) argp_parse(&argp, argc2, argv2, ARGP_IN_ORDER | ARGP_PARSE_ARGV0, &cmd_index_2, NULL);
-		argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, &cmd_index, NULL);
+		int cmd_index = 0, cmd_index_from_config = 0, cmd_index_from_override = 0;
+		if (argc_from_config) argp_parse(&argp, argc_from_config, argv_from_config, ARGP_IN_ORDER, &cmd_index_from_config, NULL);
+		if (argc_from_override) argp_parse(&argp, argc_from_override, argv_from_override, ARGP_IN_ORDER, &cmd_index_from_override, NULL);
 
 		if (!name) errx(1, "Can only exec in named containers");
-		if (arg_index + cmd_index >= argc && cmd_index_2 >= argc2) errx(1, "No command to exeute");
+		if (arg_index + cmd_index >= argc && cmd_index_from_config >= argc_from_config && cmd_index_from_override >= argc_from_override) errx(1, "No command to exeute");
 
 		penvp = realloc(penvp, (++nenvp)*sizeof(char *));
 		if (!penvp) err(1, "realloc(penvp)");
 		penvp[nenvp-1] = NULL;
 
 		if (arg_index + cmd_index < argc) pargv = argv + arg_index + cmd_index;
-		else pargv = argv2 + cmd_index_2;
+		else if (cmd_index_from_override < argc_from_override) pargv = argv_from_override + cmd_index_from_override;
+		else pargv = argv_from_config + cmd_index_from_config;
 
 		lexec(0, pargv, penvp);
 	}

@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 
-#define URLLEN 2048
+#define URL_MAX 2048
 #define URLLEN_S "2048"
 
 // Do not redirect on HTTP 3xx responses

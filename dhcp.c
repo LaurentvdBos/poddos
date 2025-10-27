@@ -25,8 +25,7 @@
 
 extern char *dnsserver;
 
-enum dhcpopt
-{
+enum dhcpopt {
     PAD = 0,
     SUBNET_MASK = 1,
     TIME_OFFSET = 2,
@@ -113,8 +112,7 @@ enum dhcpopt
     END = 255,
 };
 
-enum dhcptype
-{
+enum dhcptype {
     DISCOVER = 1,
     OFFER = 2,
     REQUEST = 3,
@@ -135,8 +133,7 @@ enum dhcptype
     TLS = 18,
 };
 
-struct dhcphdr
-{
+struct dhcphdr {
     uint8_t op, htype, hlen, hops;
     uint32_t xid;
     uint16_t secs, flags;
@@ -159,58 +156,59 @@ int ifindex = -1;
 
 uint16_t chksum(void *buf, int n)
 {
-    uint8_t *buf8 = (uint8_t *)buf;
-    uint16_t *buf16 = (uint16_t *)buf;
+    uint8_t *buf8 = (uint8_t *) buf;
+    uint16_t *buf16 = (uint16_t *) buf;
     uint32_t ret = 0;
 
-    for (int i = 0; i < n; i+=2) {
+    for (int i = 0; i < n; i += 2) {
         ret += *(buf16++);
     }
-    if (n % 2) ret += buf8[n-1];
+    if (n % 2)
+        ret += buf8[n - 1];
 
     ret = (ret >> 16) + (ret & 0xFFFF);
     ret = (ret >> 16) + (ret & 0xFFFF);
     return ~ret;
 }
 
-int optlen(uint8_t *buf)
+int optlen(uint8_t * buf)
 {
     int n = 0;
     while (buf[n] != END) {
-        uint8_t len = buf[n+1];
+        uint8_t len = buf[n + 1];
         n += len + 2;
     }
     return n + 1;
 }
 
-uint8_t *optget(uint8_t *buf, enum dhcpopt which)
+uint8_t *optget(uint8_t * buf, enum dhcpopt which)
 {
     int n = 0;
     while (buf[n] != END) {
-        if (buf[n] == which) return buf + n + 2;
-        uint8_t len = buf[n+1];
+        if (buf[n] == which)
+            return buf + n + 2;
+        uint8_t len = buf[n + 1];
         n += len + 2;
     }
     return NULL;
 }
 
-void addopt(uint8_t *buf, enum dhcpopt which, ...)
+void addopt(uint8_t * buf, enum dhcpopt which, ...)
 {
     // Search for END and put the new op in there
     int n = optlen(buf);
-    buf[n-1] = which;
+    buf[n - 1] = which;
 
     int len;
 
     va_list va;
     va_start(va, which);
-    switch (which)
-    {
+    switch (which) {
     case REQUESTED_IP_ADDRESS:
     case SERVER_IDENTIFIER:
         buf[n++] = sizeof(uint32_t);
         uint32_t ipaddr = va_arg(va, uint32_t);
-        memcpy(buf+n, &ipaddr, sizeof(uint32_t));
+        memcpy(buf + n, &ipaddr, sizeof(uint32_t));
         n += sizeof(uint32_t);
         break;
 
@@ -224,8 +222,9 @@ void addopt(uint8_t *buf, enum dhcpopt which, ...)
         buf[n++] = 0;
 
         len = n;
-        while ((param = va_arg(va, enum dhcpopt))) buf[n++] = param;
-        buf[len-1] = n - len;
+        while ((param = va_arg(va, enum dhcpopt)))
+             buf[n++] = param;
+        buf[len - 1] = n - len;
         break;
 
     case END:
@@ -236,7 +235,8 @@ void addopt(uint8_t *buf, enum dhcpopt which, ...)
         len = va_arg(va, int);
         uint8_t *payload = va_arg(va, uint8_t *);
         buf[n++] = len;
-        for (int i = 0; i < len; i++) buf[n++] = payload[i];
+        for (int i = 0; i < len; i++)
+            buf[n++] = payload[i];
         break;
     }
     va_end(va);
@@ -248,17 +248,17 @@ void dhcpsend(int sock)
 {
     char buf[1000];
     memset(buf, 0, 1000);
-    struct iphdr *iphdr = (struct iphdr *)buf;
-    struct udphdr *udphdr = (struct udphdr *)(iphdr + 1);
-    struct dhcphdr *dhcphdr = (struct dhcphdr *)(udphdr + 1);
+    struct iphdr *iphdr = (struct iphdr *) buf;
+    struct udphdr *udphdr = (struct udphdr *) (iphdr + 1);
+    struct dhcphdr *dhcphdr = (struct dhcphdr *) (udphdr + 1);
 
-    uint8_t *opt = (uint8_t *)(dhcphdr + 1);
+    uint8_t *opt = (uint8_t *) (dhcphdr + 1);
     opt[0] = END;
 
     memset(dhcphdr, 0, sizeof(struct dhcphdr));
 
-    dhcphdr->op = 1; // 1 means "REQUEST"
-    dhcphdr->htype = 1; // Ethernet, can also be found as the ARPHRD_ETHER constant in linux/if_arp.h
+    dhcphdr->op = 1;            // 1 means "REQUEST"
+    dhcphdr->htype = 1;         // Ethernet, can also be found as the ARPHRD_ETHER constant in linux/if_arp.h
     dhcphdr->hlen = ETHER_ADDR_LEN;
     dhcphdr->xid = htonl(xid);
     memcpy(dhcphdr->chaddr, mac, 6);
@@ -266,15 +266,15 @@ void dhcpsend(int sock)
 
     if (yiaddr == 0) {
         addopt(opt, DHCP_MESSAGE_TYPE, DISCOVER);
-    }
-    else {
+    } else {
         dhcphdr->siaddr = siaddr;
 
         addopt(opt, DHCP_MESSAGE_TYPE, REQUEST);
         addopt(opt, REQUESTED_IP_ADDRESS, yiaddr);
         addopt(opt, SERVER_IDENTIFIER, siaddr);
         addopt(opt, PARAMETER_REQUEST_LIST, SUBNET_MASK, ROUTER, DOMAIN_NAME_SERVER, DOMAIN_NAME);
-        if (name) addopt(opt, HOST_NAME, strlen(name), name);
+        if (name)
+            addopt(opt, HOST_NAME, strlen(name), name);
     }
 
     uint16_t len = sizeof(struct dhcphdr) + optlen(opt);
@@ -303,10 +303,12 @@ void dhcpsend(int sock)
     addr_ll.sll_family = AF_PACKET;
     addr_ll.sll_protocol = htons(ETH_P_IP);
     addr_ll.sll_ifindex = ifindex;
-    addr_ll.sll_addr[0] = addr_ll.sll_addr[1] = addr_ll.sll_addr[2] = addr_ll.sll_addr[3] = addr_ll.sll_addr[4] = addr_ll.sll_addr[5] = 0xff;
+    addr_ll.sll_addr[0] = addr_ll.sll_addr[1] = addr_ll.sll_addr[2] = addr_ll.sll_addr[3] = addr_ll.sll_addr[4] =
+        addr_ll.sll_addr[5] = 0xff;
     addr_ll.sll_halen = ETHER_ADDR_LEN;
 
-    if (sendto(sock, buf, len, 0, (struct sockaddr *)&addr_ll, sizeof(struct sockaddr_ll)) == -1) err(1, "sendto");
+    if (sendto(sock, buf, len, 0, (struct sockaddr *) &addr_ll, sizeof(struct sockaddr_ll)) == -1)
+        err(1, "sendto");
 }
 
 int dhcpstep(char *ifname, int sock)
@@ -314,85 +316,90 @@ int dhcpstep(char *ifname, int sock)
     int n;
     char buf[65535];
 
-    if ((n = recv(sock, buf, 65535, 0)) == -1) err(1, "recv");
+    if ((n = recv(sock, buf, 65535, 0)) == -1)
+        err(1, "recv");
 
     const size_t minsize = sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct dhcphdr) + 1;
-    if (n < minsize) return sock; // Package is too small to be a DHCP package
+    if (n < minsize)
+        return sock;            // Package is too small to be a DHCP package
 
-    struct iphdr *iphdr = (struct iphdr *)buf;
-    struct udphdr *udphdr = (struct udphdr *)(iphdr + 1);
-    struct dhcphdr *dhcphdr = (struct dhcphdr *)(udphdr + 1);
-    if (iphdr->protocol == IPPROTO_UDP && // Is it an UDP package ...
-        ntohs(udphdr->dest) == 68 && // ... sent to port 68 ...
-        ntohl(dhcphdr->magic) == MAGIC_COOKIE && // ... with the correct magic cookie ...
-        ntohl(dhcphdr->xid) == xid && // ... our xid ...
-        !memcmp(dhcphdr->chaddr, mac, ETHER_ADDR_LEN) && // ... our MAC address ...
-        dhcphdr->op == 0x02) { // ... and a response? ...
+    struct iphdr *iphdr = (struct iphdr *) buf;
+    struct udphdr *udphdr = (struct udphdr *) (iphdr + 1);
+    struct dhcphdr *dhcphdr = (struct dhcphdr *) (udphdr + 1);
+    if (iphdr->protocol == IPPROTO_UDP &&       // Is it an UDP package ...
+        ntohs(udphdr->dest) == 68 &&    // ... sent to port 68 ...
+        ntohl(dhcphdr->magic) == MAGIC_COOKIE &&        // ... with the correct magic cookie ...
+        ntohl(dhcphdr->xid) == xid &&   // ... our xid ...
+        !memcmp(dhcphdr->chaddr, mac, ETHER_ADDR_LEN) &&        // ... our MAC address ...
+        dhcphdr->op == 0x02) {  // ... and a response? ...
         // ... then it is a DHCP package (probably)
 
-        uint8_t *msgtype = optget((uint8_t *)(dhcphdr + 1), DHCP_MESSAGE_TYPE);
-        if (!msgtype) return sock; // Ignore malformed DHCP package
+        uint8_t *msgtype = optget((uint8_t *) (dhcphdr + 1), DHCP_MESSAGE_TYPE);
+        if (!msgtype)
+            return sock;        // Ignore malformed DHCP package
 
         if (*msgtype == OFFER) {
             yiaddr = dhcphdr->yiaddr;
             siaddr = dhcphdr->siaddr;
 
             dhcpsend(sock);
-        }
-        else if (*msgtype == ACK) {
+        } else if (*msgtype == ACK) {
             // Initialize the link
             struct ifreq req;
             strncpy(req.ifr_name, ifname, IFNAMSIZ);
-            uint8_t *options = (uint8_t *)(dhcphdr + 1);
-            struct sockaddr_in *sai = (struct sockaddr_in *)&req.ifr_addr;
+            uint8_t *options = (uint8_t *) (dhcphdr + 1);
+            struct sockaddr_in *sai = (struct sockaddr_in *) &req.ifr_addr;
             sai->sin_family = AF_INET;
             sai->sin_port = 0;
 
             // Set ip
             sai->sin_addr.s_addr = yiaddr;
-            if (ioctl(sock, SIOCSIFADDR, &req) == -1) err(1, "ioctl(SIOCSIFADDR)");
+            if (ioctl(sock, SIOCSIFADDR, &req) == -1)
+                err(1, "ioctl(SIOCSIFADDR)");
 
             // Set netmask
             memcpy(&sai->sin_addr, optget(options, SUBNET_MASK), 4);
-            if (ioctl(sock, SIOCSIFNETMASK, &req) == -1) err(1, "ioctl(SIOCIFNETMASK)");
+            if (ioctl(sock, SIOCSIFNETMASK, &req) == -1)
+                err(1, "ioctl(SIOCIFNETMASK)");
 
             // Set broadcast address
             memcpy(&sai->sin_addr, optget(options, BROADCAST), 4);
-            if (ioctl(sock, SIOCSIFBRDADDR, &req) == -1) err(1, "ioctl(SIOCSIFBRDADDR)");
+            if (ioctl(sock, SIOCSIFBRDADDR, &req) == -1)
+                err(1, "ioctl(SIOCSIFBRDADDR)");
 
             // Set a default routing entry (the "gateway")
             struct rtentry route = { 0 };
-            sai = (struct sockaddr_in *)&route.rt_gateway;
+            sai = (struct sockaddr_in *) &route.rt_gateway;
             sai->sin_family = AF_INET;
             memcpy(&sai->sin_addr, optget(options, ROUTER), 4);
-            sai = (struct sockaddr_in *)&route.rt_dst;
+            sai = (struct sockaddr_in *) &route.rt_dst;
             sai->sin_family = AF_INET;
             sai->sin_addr.s_addr = INADDR_ANY;
-            sai = (struct sockaddr_in *)&route.rt_genmask;
+            sai = (struct sockaddr_in *) &route.rt_genmask;
             sai->sin_family = AF_INET;
             sai->sin_addr.s_addr = INADDR_ANY;
-            
+
             route.rt_flags = RTF_UP | RTF_GATEWAY;
             route.rt_metric = 0;
             route.rt_dev = ifname;
 
-            ioctl(sock, SIOCDELRT, &route); // Errors are ignored
-            if (ioctl(sock, SIOCADDRT, &route) == -1) err(1, "ioctl(SIOCADDRT)");
+            ioctl(sock, SIOCDELRT, &route);     // Errors are ignored
+            if (ioctl(sock, SIOCADDRT, &route) == -1)
+                err(1, "ioctl(SIOCADDRT)");
 
             // Create a /etc/resolv.conf
             FILE *f = fopen("/etc/resolv.conf", "w");
-	    uint8_t *dns = optget(options, DOMAIN_NAME_SERVER);
-	    uint8_t *len = dns-1;
-	    if (!dnsserver) {
-		    for (int i = 0; i < *len; i += 4) {
-			struct in_addr addr;
-			memcpy(&addr, dns+i, 4);
-			fprintf(f, "nameserver %s\n", inet_ntoa(addr));
-		    }
-	    }
-	    else {
-		    fprintf(f, "nameserver %s\n", dnsserver);
-	    }
+            uint8_t *dns = optget(options, DOMAIN_NAME_SERVER);
+            uint8_t *len = dns - 1;
+            if (!dnsserver) {
+                for (int i = 0; i < *len; i += 4) {
+                    struct in_addr addr;
+                    memcpy(&addr, dns + i, 4);
+                    fprintf(f, "nameserver %s\n", inet_ntoa(addr));
+                }
+            } else {
+                fprintf(f, "nameserver %s\n", dnsserver);
+            }
 
             uint8_t *domain = optget(options, DOMAIN_NAME);
             len = domain - 1;
@@ -405,10 +412,9 @@ int dhcpstep(char *ifname, int sock)
 
             // Return when dhcp should be restarted (when the lease time is 90%)
             uint8_t *lease = optget(options, IP_ADDRESS_LEASE_TIME);
-            int lease_time = (int)ntohl(*(uint32_t *)lease);
+            int lease_time = (int) ntohl(*(uint32_t *) lease);
             sock = -lease_time / 10 * 9;
-        }
-        else {
+        } else {
             // In case of any other message (e.g., NACK) we go back to start
             yiaddr = siaddr = 0;
 
@@ -426,21 +432,25 @@ int dhcpstart(char *ifname)
     int sock;
 
     while (!xid) {
-        if (getrandom(&xid, sizeof(xid), 0) == -1) err(1, "getrandom");
+        if (getrandom(&xid, sizeof(xid), 0) == -1)
+            err(1, "getrandom");
     }
 
     // Get a raw socket
     sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IP));
-    if (sock == -1) err(1, "socket");    
+    if (sock == -1)
+        err(1, "socket");
 
     // Get the index of the interface;
     strncpy(req.ifr_name, ifname, IFNAMSIZ);
-    if (ioctl(sock, SIOCGIFINDEX, &req) == -1) err(1, "ioctl(SIOCGIFINDEX)");
+    if (ioctl(sock, SIOCGIFINDEX, &req) == -1)
+        err(1, "ioctl(SIOCGIFINDEX)");
     ifindex = req.ifr_ifindex;
 
     // Get the mac address of the interface
     strncpy(req.ifr_name, ifname, IFNAMSIZ);
-    if (ioctl(sock, SIOCGIFHWADDR, &req) == -1) err(1, "ioctl(SIOCGIFHWADDR)");
+    if (ioctl(sock, SIOCGIFHWADDR, &req) == -1)
+        err(1, "ioctl(SIOCGIFHWADDR)");
     memcpy(mac, &req.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
 
     // Bind the socket to the provided index and start receiving IP packages.
@@ -449,7 +459,8 @@ int dhcpstart(char *ifname)
     addr_ll.sll_family = AF_PACKET;
     addr_ll.sll_protocol = htons(ETH_P_IP);
     addr_ll.sll_ifindex = ifindex;
-    if (bind(sock, (struct sockaddr *)&addr_ll, sizeof(struct sockaddr_ll)) == -1) err(1, "bind");
+    if (bind(sock, (struct sockaddr *) &addr_ll, sizeof(struct sockaddr_ll)) == -1)
+        err(1, "bind");
 
     // Initiate a DHCP handshake
     dhcpsend(sock);

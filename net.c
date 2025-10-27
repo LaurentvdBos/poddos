@@ -27,8 +27,10 @@ void bringloup()
         .ifr_flags = IFF_UP | IFF_RUNNING
     };
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == -1) err(1, "socket(AF_INET, SOCK_DGRAM, 0)");
-    if (ioctl(sock, SIOCSIFFLAGS, &req) == -1) err(1, "ioctl(SIOCSIFFLAGS)");
+    if (sock == -1)
+        err(1, "socket(AF_INET, SOCK_DGRAM, 0)");
+    if (ioctl(sock, SIOCSIFFLAGS, &req) == -1)
+        err(1, "ioctl(SIOCSIFFLAGS)");
     close(sock);
 }
 
@@ -55,16 +57,17 @@ void ifremove(char *ifname)
     // Initialize the netlink socket
     char buf[4096];
     int netfd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
-    if (netfd < 0) err(1, "socket(AF_NETLINK)");
+    if (netfd < 0)
+        err(1, "socket(AF_NETLINK)");
 
     struct sockaddr_nl sa;
     sa.nl_family = AF_NETLINK;
     sa.nl_groups = RTMGRP_LINK;
     sa.nl_pid = 0;
-    if (bind(netfd, (struct sockaddr *)&sa, sizeof(sa)) < 0) err(1, "bind(netfd)");
+    if (bind(netfd, (struct sockaddr *) &sa, sizeof(sa)) < 0)
+        err(1, "bind(netfd)");
 
-    struct
-    {
+    struct {
         struct nlmsghdr hdr;
         struct ifinfomsg ifinfo;
         char attrbuf[512];
@@ -81,7 +84,7 @@ void ifremove(char *ifname)
     req.ifinfo.ifi_change = 0xFFFFFFFF;
 
     int n = 512;
-    struct rtattr *rta0 = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
+    struct rtattr *rta0 = (struct rtattr *) (((char *) &req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
     rta0->rta_type = IFLA_IFNAME;
     rta0->rta_len = RTA_LENGTH(strlen(ifname));
     strcpy(RTA_DATA(rta0), ifname);
@@ -89,17 +92,21 @@ void ifremove(char *ifname)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
 
-    if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
+    if (sendnl(netfd, &req.hdr) == -1)
+        err(1, "sendnl");
 
-    if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
+    if ((n = read(netfd, buf, 4096)) == -1)
+        err(1, "read(netfd)");
 
     int ifindex = -1;
-    for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-        if (hdr->nlmsg_type == NLMSG_DONE) break;
+    for (struct nlmsghdr * hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+        if (hdr->nlmsg_type == NLMSG_DONE)
+            break;
 
         if (hdr->nlmsg_type == NLMSG_ERROR) {
-            struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-            if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
+            struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+            if (nlerr->error < 0)
+                errno = -nlerr->error, err(1, "rtnetlink");
         }
 
         if (hdr->nlmsg_type == RTM_NEWLINK) {
@@ -107,7 +114,8 @@ void ifremove(char *ifname)
             ifindex = req.ifinfo.ifi_index;
         }
     }
-    if (ifindex == -1) err(1, "Interface %s went missing.", ifname);
+    if (ifindex == -1)
+        err(1, "Interface %s went missing.", ifname);
 
     memset(&req, 0, sizeof(req));
     req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
@@ -121,20 +129,25 @@ void ifremove(char *ifname)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len);
 
-    if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
+    if (sendnl(netfd, &req.hdr) == -1)
+        err(1, "sendnl");
 
     // Wait for acknowledgement or error, whichever comes first
     int ack = 0;
     while (!ack) {
-        if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
+        if ((n = read(netfd, buf, 4096)) == -1)
+            err(1, "read(netfd)");
 
-        for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-            if (hdr->nlmsg_type == NLMSG_DONE) break;
+        for (struct nlmsghdr * hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+            if (hdr->nlmsg_type == NLMSG_DONE)
+                break;
 
             if (hdr->nlmsg_type == NLMSG_ERROR) {
-                struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-                if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
-                if (nlerr->error == 0) ack = 1;
+                struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+                if (nlerr->error < 0)
+                    errno = -nlerr->error, err(1, "rtnetlink");
+                if (nlerr->error == 0)
+                    ack = 1;
             }
         }
     }
@@ -147,16 +160,17 @@ void makemacvlan(pid_t pid)
     // Initialize the netlink socket
     char buf[4096];
     int netfd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
-    if (netfd < 0) err(1, "socket(AF_NETLINK)");
+    if (netfd < 0)
+        err(1, "socket(AF_NETLINK)");
 
     struct sockaddr_nl sa;
     sa.nl_family = AF_NETLINK;
     sa.nl_groups = RTMGRP_LINK;
     sa.nl_pid = 0;
-    if (bind(netfd, (struct sockaddr *)&sa, sizeof(sa)) < 0) err(1, "bind(netfd)");
+    if (bind(netfd, (struct sockaddr *) &sa, sizeof(sa)) < 0)
+        err(1, "bind(netfd)");
 
-    struct
-    {
+    struct {
         struct nlmsghdr hdr;
         struct ifinfomsg ifinfo;
         char attrbuf[512];
@@ -173,7 +187,7 @@ void makemacvlan(pid_t pid)
     req.ifinfo.ifi_change = 0xFFFFFFFF;
 
     int n = 512;
-    struct rtattr *rta0 = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
+    struct rtattr *rta0 = (struct rtattr *) (((char *) &req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
     rta0->rta_type = IFLA_IFNAME;
     rta0->rta_len = RTA_LENGTH(strlen(ifname));
     strcpy(RTA_DATA(rta0), ifname);
@@ -181,17 +195,21 @@ void makemacvlan(pid_t pid)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
 
-    if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
+    if (sendnl(netfd, &req.hdr) == -1)
+        err(1, "sendnl");
 
-    if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
+    if ((n = read(netfd, buf, 4096)) == -1)
+        err(1, "read(netfd)");
 
     int ifindex = 0;
-    for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-        if (hdr->nlmsg_type == NLMSG_DONE) break;
+    for (struct nlmsghdr * hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+        if (hdr->nlmsg_type == NLMSG_DONE)
+            break;
 
         if (hdr->nlmsg_type == NLMSG_ERROR) {
-            struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-            if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
+            struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+            if (nlerr->error < 0)
+                errno = -nlerr->error, err(1, "rtnetlink");
         }
 
         if (hdr->nlmsg_type == RTM_NEWLINK) {
@@ -213,7 +231,7 @@ void makemacvlan(pid_t pid)
 
     n = 512;
 
-    struct rtattr *rta = (struct rtattr *)(((char *)&req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
+    struct rtattr *rta = (struct rtattr *) (((char *) &req) + NLMSG_ALIGN(req.hdr.nlmsg_len));
 
     rta->rta_type = IFLA_LINK;
     rta->rta_len = RTA_LENGTH(sizeof(ifindex));
@@ -257,20 +275,25 @@ void makemacvlan(pid_t pid)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
 
-    if (sendnl(netfd, &req.hdr) == -1) err(1, "sendnl");
+    if (sendnl(netfd, &req.hdr) == -1)
+        err(1, "sendnl");
 
     // Wait for acknowledgement or error, whichever comes first
     int ack = 0;
     while (!ack) {
-        if ((n = read(netfd, buf, 4096)) == -1) err(1, "read(netfd)");
+        if ((n = read(netfd, buf, 4096)) == -1)
+            err(1, "read(netfd)");
 
-        for (struct nlmsghdr *hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
-            if (hdr->nlmsg_type == NLMSG_DONE) break;
+        for (struct nlmsghdr * hdr = (struct nlmsghdr *)buf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+            if (hdr->nlmsg_type == NLMSG_DONE)
+                break;
 
             if (hdr->nlmsg_type == NLMSG_ERROR) {
-                struct nlmsgerr *nlerr = (struct nlmsgerr *)NLMSG_DATA(hdr);
-                if (nlerr->error < 0) errno = -nlerr->error, err(1, "rtnetlink");
-                if (nlerr->error == 0) ack = 1;
+                struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+                if (nlerr->error < 0)
+                    errno = -nlerr->error, err(1, "rtnetlink");
+                if (nlerr->error == 0)
+                    ack = 1;
             }
         }
     }

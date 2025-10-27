@@ -569,7 +569,12 @@ void lstart(unsigned flags, char **argv, char **envp)
     // Change directory specified by the user
     if (directory && chdir(directory) == -1) err(1, "chdir(%s)", directory);
 
-    execve(argv[0], argv, envp);
+    // Set up the environment such that execvp works
+    clearenv();
+    for (int i = 0; envp[i]; i++)
+        putenv(envp[i]);
+
+    execvp(argv[0], argv);
     err(1, "execv");
 }
 
@@ -597,6 +602,11 @@ void lexec(unsigned flags, char **argv, char **envp)
 
     forktochild();
 
-    execve(argv[0], argv, envp);
+    // Set up the environment such that execvp works
+    clearenv();
+    for (int i = 0; envp[i]; i++)
+        putenv(envp[i]);
+
+    execvp(argv[0], argv);
     err(1, "execv");
 }

@@ -13,6 +13,7 @@
 
 #include "pull.h"
 #include "layer.h"
+#include "prune.h"
 
 static struct argp_option global_options[] = {
 	{"layer", 'l', "PATH", 0, "Path where layers are stored. Defaults to the value of the environmental variable $LAYERPATH, or $XDG_DATA_HOME/poddos if unset (the latter usually resolves to ~/.local/share/poddos)."},
@@ -22,6 +23,13 @@ static struct argp_option global_options[] = {
 
 static struct argp_option pull_options[] = {
 	{"url", 'u', "URL", 0, "Pull a series of layers from this url"},
+	{ 0 }
+};
+
+static struct argp_option prune_options[] = {
+	{"all", 'a', NULL, 0, "Prune all layers found in the layer path that are not used by any configuration anymore. "
+                          "Asks before doing any removal."},
+	{"force", 'f', NULL, 0, "If used in combination with --all, do not confirm before removing a layer."},
 	{ 0 }
 };
 
@@ -60,6 +68,9 @@ const char *url = NULL;
 
 bool ephemeral = false;
 
+bool prune_all = false;
+bool force = false;
+
 char *ifname = NULL;
 char mac[6] = { 0 };
 char *dnsserver = NULL;
@@ -94,6 +105,12 @@ int dircnt(const char *name)
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
 {
 	switch (key) {
+	case 'a':
+		prune_all = true;
+        break;
+	case 'f':
+		force = true;
+        break;
 	case 'o':
 		if (upperdir[0] && dircnt(upperdir) > 2) {
 			if (!lowerdir[0]) strcpy(lowerdir, upperdir);
@@ -224,7 +241,7 @@ int main(int argc, char **argv)
 	struct argp argp = {
 		.options = global_options,
 		.parser = parse_opt,
-		.args_doc = "pull|start|exec [OPTIONS...]"
+		.args_doc = "pull|start|exec|prune [OPTIONS...]"
 	};
 	int arg_index = 0;
 	argp_parse(&argp, argc, argv, ARGP_NO_ARGS | ARGP_IN_ORDER, &arg_index, NULL);
@@ -303,24 +320,44 @@ int main(int argc, char **argv)
 		struct argp argp = {
 			.options = exec_options,
 			.parser = parse_opt,
-			.args_doc = "[CMD...]"
+			.args_doc = "CMD..."
 		};
-		int cmd_index = 0, cmd_index_from_config = 0, cmd_index_from_override = 0;
-		if (argc_from_config) argp_parse(&argp, argc_from_config, argv_from_config, ARGP_IN_ORDER, &cmd_index_from_config, NULL);
-		if (argc_from_override) argp_parse(&argp, argc_from_override, argv_from_override, ARGP_IN_ORDER, &cmd_index_from_override, NULL);
+		int cmd_index = 0;
+		if (argc_from_config) argp_parse(&argp, argc_from_config, argv_from_config, ARGP_IN_ORDER, NULL, NULL);
+		if (argc_from_override) argp_parse(&argp, argc_from_override, argv_from_override, ARGP_IN_ORDER, NULL, NULL);
+		argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, &cmd_index, NULL);
 
 		if (!name) errx(1, "Can only exec in named containers");
-		if (arg_index + cmd_index >= argc && cmd_index_from_config >= argc_from_config && cmd_index_from_override >= argc_from_override) errx(1, "No command to exeute");
+		if (arg_index + cmd_index >= argc) errx(1, "No command to exeute");
 
 		penvp = realloc(penvp, (++nenvp)*sizeof(char *));
 		if (!penvp) err(1, "realloc(penvp)");
 		penvp[nenvp-1] = NULL;
 
-		if (arg_index + cmd_index < argc) pargv = argv + arg_index + cmd_index;
-		else if (cmd_index_from_override < argc_from_override) pargv = argv_from_override + cmd_index_from_override;
-		else pargv = argv_from_config + cmd_index_from_config;
+		pargv = argv + arg_index + cmd_index;
 
 		lexec(0, pargv, penvp);
+	}
+	else if (!strcmp(argv[arg_index], "prune")) {
+		argv[arg_index] = "poddos-prune";
+		struct argp argp = {
+			.options = prune_options,
+			.parser = parse_opt,
+			.args_doc = "[LAYER...]",
+            .doc = "Prune unused layers from disk. "
+                   "With the --all flag, poddos automatically scans for unused layers. "
+                   "One can also specify one or more layers explicitly, but then poddos does not check whether they are still in use."
+		};
+        int cmd_index = 0;
+		argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, &cmd_index, NULL);
+
+        char **layers = argv + arg_index + cmd_index;
+
+        for (int i = 0; layers[i]; i++)
+            prune(layers[i]);
+
+        if (prune_all)
+            pruneall(force);
 	}
 	else fprintf(stderr, "Unrecognized action '%s'.\n", argv[arg_index]);
 

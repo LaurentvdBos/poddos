@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <argp.h>
 #include <dirent.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
@@ -16,61 +17,51 @@
 #include "prune.h"
 
 static struct argp_option global_options[] = {
-    { "layer", 'l', "PATH", 0,
-     "Path where layers are stored. Defaults to the value of the environmental variable $LAYERPATH, or $XDG_DATA_HOME/poddos if unset (the latter usually resolves to ~/.local/share/poddos)."
-     },
-    { "name", 'n', "NAME", 0,
-     "Assign a name to the container. This name will be the hostname of the container (if a UTS namespace is created), can be used to store configuration, and is used to create a pidfile."
-     },
-    { 0 }
+    {"layer", 'l', "PATH", 0, "Path where layers are stored. "
+                              "Defaults to the value of the environmental variable $LAYERPATH, or $XDG_DATA_HOME/poddos if unset (the latter usually resolves to ~/.local/share/poddos)."},
+    {"name", 'n', "NAME", 0, "Assign a name to the container. "
+                             "This name will be the hostname of the container (if a UTS namespace is created), can be used to store configuration, and is used to create a pidfile."},
+    {0}
 };
 
 static struct argp_option pull_options[] = {
-    { "url", 'u', "URL", 0, "Pull a series of layers from this url" },
-    { 0 }
+    {"url", 'u', "URL", 0, "Pull a series of layers from this url"},
+    {0}
 };
 
 static struct argp_option prune_options[] = {
-    { "all", 'a', NULL, 0, "Prune all layers found in the layer path that are not used by any configuration anymore. "
-     "Asks before doing any removal." },
-    { "force", 'f', NULL, 0, "If used in combination with --all, do not confirm before removing a layer." },
-    { 0 }
+    {"all", 'a', NULL, 0, "Prune all layers found in the layer path that are not used by any configuration anymore. "
+                          "Asks before doing any removal."},
+    {"force", 'f', NULL, 0, "If used in combination with --all, do not confirm before removing a layer."},
+    {0}
 };
 
 static struct argp_option start_options[] = {
-    { "overlay", 'o', "PATH", 0, "Overlay paths, to be specified multiple times. "
-     "Each path is overlayed on top of the previous one. "
-     "Modifications to the container are stored in the last path (but see --ephemeral)." },
-    { "env", 'e', "FOO=BAR", 0,
-     "Environment variables added when executing, to be specified multiple times if needed." },
-    { "ephemeral", 'E', NULL, 0,
-     "All modifications made in the mount namespace are thrown away. "
-     "This is done by making the top-level directory a tmpfs, and requires a kernel that supports user extended attributes on a tmpfs for full support (upstream that is since version 6.6)."
-     },
-    { "net", 1000, "INTERFACE", 0,
-     "Put container in net namespace and initialize a macvlan (usually called macvlan0) in it. "
-     "The macvlan is put in bridge mode, such that all containers can connect to eachother directly. "
-     "An IP (only v4) is obtained via DHCP, so there is a noticable lag when starting the container. "
-     "Keep in mind that the host cannot directly connect to the containers, which is a known restriction of macvlans. "
-     "This usually only works with wired links and requires CAP_NET_ADMIN." },
-    { "mac", 1001, "MAC", 0,
-     "If --net is provided, the mac address of the macvlan. " "If not provided, the kernel picks one randomly." },
-    { "bind", 1002, "FROM:TO", 0,
-     "Mount the path <FROM> in the container to the path <TO>. "
-     "<TO> can be omitted, and then it will appear in the same place as <FROM>. "
-     "All provided paths should be absolute paths." },
-    { "directory", 'C', "PATH", 0,
-     "Change to the specified directory before executing the specified command. "
-     "The specified directory should be an existing directory in the folder structure of the container." },
-    { 0 }
+    {"overlay", 'o', "PATH", 0, "Overlay paths, to be specified multiple times. "
+                                "Each path is overlayed on top of the previous one. "
+                                "Modifications to the container are stored in the last path (but see --ephemeral)."},
+    {"env", 'e', "FOO=BAR", 0, "Environment variables added when executing, to be specified multiple times if needed."},
+    {"ephemeral", 'E', NULL, 0, "All modifications made in the mount namespace are thrown away. "
+                                "This is done by making the top-level directory a tmpfs, and requires a kernel that supports user extended attributes on a tmpfs for full support (upstream that is since version 6.6)."},
+    {"no-ephemeral", 1003, NULL, 0, "Turn off ephemeral (e.g., in a .2 file)."},
+    {"net", 1000, "INTERFACE", 0, "Put container in net namespace and initialize a macvlan (usually called macvlan0) in it. "
+                                  "The macvlan is put in bridge mode, such that all containers can connect to eachother directly. "
+                                  "An IP (only v4) is obtained via DHCP, so there is a noticable lag when starting the container. "
+                                  "Keep in mind that the host cannot directly connect to the containers, which is a known restriction of macvlans. "
+                                  "This usually only works with wired links and requires CAP_NET_ADMIN."},
+    {"mac", 1001, "MAC", 0, "If --net is provided, the mac address of the macvlan. "
+                            "If not provided, the kernel picks one randomly."},
+    {"bind", 1002, "FROM:TO", 0, "Mount the path <FROM> in the container to the path <TO>. "
+                                 "<TO> can be omitted, and then it will appear in the same place as <FROM>. "
+                                 "All provided paths should be absolute paths."},
+    {"directory", 'C', "PATH", 0, "Change to the specified directory before executing the specified command. "
+                                  "The specified directory should be an existing directory in the folder structure of the container."},
+    {0}
 };
 
 static struct argp_option exec_options[] = {
-    { "env", 'e', "FOO=BAR", 0,
-     "Environment variables added when executing the command. Specify multiple times to add multiple environmental variables."
-     },
-    { 0 }
-};
+    {"env", 'e', "FOO=BAR", 0, "Environment variables added when executing the command. Specify multiple times to add multiple environmental variables."},
+    {0}};
 
 char layer_path[PATH_MAX] = { 0 };
 
@@ -147,6 +138,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'E':
         ephemeral = true;
         break;
+    case 1003: // --no-ephemeral
+        ephemeral = false;
+        break;
     case 'l':
         strncpy(layer_path, arg, PATH_MAX - 1);
         break;
@@ -159,10 +153,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'C':
         directory = arg;
         break;
-    case 1000:                 // --net
+    case 1000: // --net
         ifname = arg;
         break;
-    case 1001:                 // --mac
+    case 1001: // --mac
         int ret = sscanf(arg, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                          &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
         if (ret != 6) {
@@ -170,7 +164,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             return 1;
         }
         break;
-    case 1002:                 // --bind
+    case 1002: // --bind
         char *from = arg;
         char *to = strchr(from, ':');
         if (to) {

@@ -55,8 +55,6 @@ static struct argp_option start_options[] = {
      "This usually only works with wired links and requires CAP_NET_ADMIN." },
     { "mac", 1001, "MAC", 0,
      "If --net is provided, the mac address of the macvlan. " "If not provided, the kernel picks one randomly." },
-    { "dns", 1003, "DNS", 0,
-     "If --net is provided, the IP address of the DNS server to use. " "If not provided, it is picked from DHCP." },
     { "bind", 1002, "FROM:TO", 0,
      "Mount the path <FROM> in the container to the path <TO>. "
      "<TO> can be omitted, and then it will appear in the same place as <FROM>. "
@@ -86,8 +84,6 @@ bool force = false;
 
 char *ifname = NULL;
 char mac[6] = { 0 };
-
-char *dnsserver = NULL;
 
 char *name = NULL;
 
@@ -201,9 +197,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         if (!bind_from[nbind - 1])
             err(1, "realpath(%s)", from);
 
-        break;
-    case 1003:
-        dnsserver = arg;
         break;
     default:
         return ARGP_ERR_UNKNOWN;

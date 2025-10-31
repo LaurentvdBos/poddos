@@ -17,8 +17,10 @@ static ssize_t chunkread(void *cookie, char *buf, size_t n)
         size_t m;
         if (!fscanf(c->f, " %lx", &m))
             return -1;
-        (void) fgetc(c->f);
-        (void) fgetc(c->f);
+        if (fgetc(c->f) != '\r')
+            return -1;
+        if (fgetc(c->f) != '\n')
+            return -1;
         if (m == 0)
             c->n = -1;
         else
@@ -52,6 +54,11 @@ static int chunkclose(void *cookie)
     return ret;
 }
 
+/**
+ * Read HTTP chunked data from a file pointer. Such data comes in chunks, where
+ * each chunk consists of an ASCII number, indicating the size of the chunk in
+ * bytes, followed by a \r\n.
+ */
 FILE *fchunk(FILE * f, unsigned flags)
 {
     struct fchunk *c = malloc(sizeof(struct fchunk));

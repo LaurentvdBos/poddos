@@ -23,8 +23,6 @@
 
 #define MAGIC_COOKIE 0x63825363
 
-extern char *dnsserver;
-
 enum dhcpopt {
     PAD = 0,
     SUBNET_MASK = 1,
@@ -257,8 +255,8 @@ void dhcpsend(int sock)
 
     memset(dhcphdr, 0, sizeof(struct dhcphdr));
 
-    dhcphdr->op = 1;            // 1 means "REQUEST"
-    dhcphdr->htype = 1;         // Ethernet, can also be found as the ARPHRD_ETHER constant in linux/if_arp.h
+    dhcphdr->op = 1; // 1 means "REQUEST"
+    dhcphdr->htype = 1; // Ethernet, can also be found as the ARPHRD_ETHER constant in linux/if_arp.h
     dhcphdr->hlen = ETHER_ADDR_LEN;
     dhcphdr->xid = htonl(xid);
     memcpy(dhcphdr->chaddr, mac, 6);
@@ -321,22 +319,22 @@ int dhcpstep(char *ifname, int sock)
 
     const size_t minsize = sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct dhcphdr) + 1;
     if (n < minsize)
-        return sock;            // Package is too small to be a DHCP package
+        return sock; // Package is too small to be a DHCP package
 
     struct iphdr *iphdr = (struct iphdr *) buf;
     struct udphdr *udphdr = (struct udphdr *) (iphdr + 1);
     struct dhcphdr *dhcphdr = (struct dhcphdr *) (udphdr + 1);
-    if (iphdr->protocol == IPPROTO_UDP &&       // Is it an UDP package ...
-        ntohs(udphdr->dest) == 68 &&    // ... sent to port 68 ...
-        ntohl(dhcphdr->magic) == MAGIC_COOKIE &&        // ... with the correct magic cookie ...
-        ntohl(dhcphdr->xid) == xid &&   // ... our xid ...
-        !memcmp(dhcphdr->chaddr, mac, ETHER_ADDR_LEN) &&        // ... our MAC address ...
-        dhcphdr->op == 0x02) {  // ... and a response? ...
+    if (iphdr->protocol == IPPROTO_UDP && // Is it an UDP package ...
+        ntohs(udphdr->dest) == 68 && // ... sent to port 68 ...
+        ntohl(dhcphdr->magic) == MAGIC_COOKIE && // ... with the correct magic cookie ...
+        ntohl(dhcphdr->xid) == xid && // ... our xid ...
+        !memcmp(dhcphdr->chaddr, mac, ETHER_ADDR_LEN) && // ... our MAC address ...
+        dhcphdr->op == 0x02) { // ... and a response? ...
         // ... then it is a DHCP package (probably)
 
         uint8_t *msgtype = optget((uint8_t *) (dhcphdr + 1), DHCP_MESSAGE_TYPE);
         if (!msgtype)
-            return sock;        // Ignore malformed DHCP package
+            return sock; // Ignore malformed DHCP package
 
         if (*msgtype == OFFER) {
             yiaddr = dhcphdr->yiaddr;
@@ -383,7 +381,7 @@ int dhcpstep(char *ifname, int sock)
             route.rt_metric = 0;
             route.rt_dev = ifname;
 
-            ioctl(sock, SIOCDELRT, &route);     // Errors are ignored
+            ioctl(sock, SIOCDELRT, &route); // Errors are ignored
             if (ioctl(sock, SIOCADDRT, &route) == -1)
                 err(1, "ioctl(SIOCADDRT)");
 
@@ -391,14 +389,10 @@ int dhcpstep(char *ifname, int sock)
             FILE *f = fopen("/etc/resolv.conf", "w");
             uint8_t *dns = optget(options, DOMAIN_NAME_SERVER);
             uint8_t *len = dns - 1;
-            if (!dnsserver) {
-                for (int i = 0; i < *len; i += 4) {
-                    struct in_addr addr;
-                    memcpy(&addr, dns + i, 4);
-                    fprintf(f, "nameserver %s\n", inet_ntoa(addr));
-                }
-            } else {
-                fprintf(f, "nameserver %s\n", dnsserver);
+            for (int i = 0; i < *len; i += 4) {
+                struct in_addr addr;
+                memcpy(&addr, dns + i, 4);
+                fprintf(f, "nameserver %s\n", inet_ntoa(addr));
             }
 
             uint8_t *domain = optget(options, DOMAIN_NAME);

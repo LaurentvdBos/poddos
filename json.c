@@ -20,7 +20,7 @@ const char *jget(const char *json, const char *key)
 
         if (json[i] == '"') {
             if (parens == 1 && !strncmp(json + i + 1, key, strlen(key))) {
-                int j = i + strlen(key) + 2;    // +2 because of opening and closing quotes
+                int j = i + strlen(key) + 2; // +2 because of opening and closing quotes
                 while (isspace(json[j]))
                     j++;
                 if (json[j] == ':') {

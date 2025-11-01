@@ -41,7 +41,7 @@ static struct argp_option start_options[] = {
     {"env", 'e', "FOO=BAR", 0, "Environment variables added when executing, to be specified multiple times if needed."},
     {"ephemeral", 'E', NULL, 0, "All modifications made in the mount namespace are thrown away. "
                                 "This is done by making the top-level directory a tmpfs, and requires a kernel that supports user extended attributes on a tmpfs for full support (upstream that is since version 6.6)."},
-    {"no-ephemeral", 1003, NULL, 0, "Turn off ephemeral (e.g., in a .2 file)."},
+    {"no-ephemeral", 1004, NULL, 0, "Turn off ephemeral (e.g., in a .2 file)."},
     {"net", 1000, "INTERFACE", 0, "Put container in net namespace and initialize a macvlan (usually called macvlan0) in it. "
                                   "The macvlan is put in bridge mode, such that all containers can connect to eachother directly. "
                                   "An IP (only v4) is obtained via DHCP, so there is a noticable lag when starting the container. "
@@ -49,6 +49,8 @@ static struct argp_option start_options[] = {
                                   "This usually only works with wired links and requires CAP_NET_ADMIN."},
     {"mac", 1001, "MAC", 0, "If --net is provided, the mac address of the macvlan. "
                             "If not provided, the kernel picks one randomly."},
+    {"dns", 1003, "DNS", 0, "If --net is provided, the IP address of the DNS server to use. "
+                            "If not provided, it is picked from DHCP."},
     {"bind", 1002, "FROM:TO", 0, "Mount the path <FROM> in the container to the path <TO>. "
                                  "<TO> can be omitted, and then it will appear in the same place as <FROM>. "
                                  "All provided paths should be absolute paths."},
@@ -73,6 +75,8 @@ bool force = false;
 
 char *ifname = NULL;
 char mac[6] = { 0 };
+
+char *dnsserver = NULL;
 
 char *name = NULL;
 
@@ -136,7 +140,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'E':
         ephemeral = true;
         break;
-    case 1003: // --no-ephemeral
+    case 1004: // --no-ephemeral
         ephemeral = false;
         break;
     case 'l':
@@ -189,6 +193,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         if (!bind_from[nbind - 1])
             err("realpath(%s)", from);
 
+        break;
+    case 1003:
+        dnsserver = arg;
         break;
     default:
         return ARGP_ERR_UNKNOWN;

@@ -22,6 +22,8 @@
 
 #define MAGIC_COOKIE 0x63825363
 
+extern char *dnsserver;
+
 enum dhcpopt {
     PAD = 0,
     SUBNET_MASK = 1,
@@ -388,10 +390,14 @@ int dhcpstep(char *ifname, int sock)
             FILE *f = fopen("/etc/resolv.conf", "w");
             uint8_t *dns = optget(options, DOMAIN_NAME_SERVER);
             uint8_t *len = dns - 1;
-            for (int i = 0; i < *len; i += 4) {
-                struct in_addr addr;
-                memcpy(&addr, dns + i, 4);
-                fprintf(f, "nameserver %s\n", inet_ntoa(addr));
+            if (!dnsserver) {
+                for (int i = 0; i < *len; i += 4) {
+                    struct in_addr addr;
+                    memcpy(&addr, dns + i, 4);
+                    fprintf(f, "nameserver %s\n", inet_ntoa(addr));
+                }
+            } else {
+                fprintf(f, "nameserver %s\n", dnsserver);
             }
 
             uint8_t *domain = optget(options, DOMAIN_NAME);

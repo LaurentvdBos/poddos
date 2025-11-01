@@ -413,7 +413,9 @@ void lstart(unsigned flags, char **argv, char **envp)
     // support.
     if (flags & LAYER_EPHEMERAL) {
         char ephemeral[PATH_MAX];
-        snprintf(ephemeral, PATH_MAX, "%s/ephemeral", layer_path);
+        int ret = snprintf(ephemeral, PATH_MAX, "%s/ephemeral", layer_path);
+        if (ret > PATH_MAX)
+            errx("Ephemeral path too long.");
         if (mount("none", ephemeral, "tmpfs", 0, "mode=777") == -1)
             err("mount(%s)", ephemeral);
         if (upperdir[0] && dircnt(upperdir) > 2) {
@@ -421,11 +423,15 @@ void lstart(unsigned flags, char **argv, char **envp)
                 strcpy(lowerdir, upperdir);
             else {
                 char buf[4096];
-                snprintf(buf, 4096, "%s:%s", upperdir, lowerdir);
+                int ret = snprintf(buf, 4096, "%s:%s", upperdir, lowerdir);
+                if (ret > 4096)
+                    errx("Overlayfs paths too long");
                 strcpy(lowerdir, buf);
             }
         }
-        snprintf(upperdir, PATH_MAX, "%s/upper", ephemeral);
+        ret = snprintf(upperdir, PATH_MAX, "%s/upper", ephemeral);
+        if (ret > PATH_MAX)
+            errx("Upper directory too long.");
         if (mkdir(upperdir, 0777) == -1)
             err("mkdir(%s)", upperdir);
     }
@@ -433,20 +439,28 @@ void lstart(unsigned flags, char **argv, char **envp)
     char mergeddir[PATH_MAX];
     if (lowerdir[0]) {
         char workdir[PATH_MAX];
-        snprintf(workdir, PATH_MAX, "%s:work", upperdir);
-        snprintf(mergeddir, PATH_MAX, "%s:merged", upperdir);
+        int ret = snprintf(workdir, PATH_MAX, "%s:work", upperdir);
+        if (ret > PATH_MAX)
+            errx("Work directory too long.");
+        ret = snprintf(mergeddir, PATH_MAX, "%s:merged", upperdir);
+        if (ret > PATH_MAX)
+            errx("Merge directory too long.");
         if (mkdir(workdir, 0777) == -1 && errno != EEXIST)
             err("mkdir(%s)", workdir);
         if (mkdir(mergeddir, 0777) == -1 && errno != EEXIST)
             err("mkdir(%s)", mergeddir);
 
         char data[4096];
-        snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,xino=off,userxattr", lowerdir, upperdir, workdir);
+        ret = snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,xino=off,userxattr", lowerdir, upperdir, workdir);
+        if (ret > 4096)
+            errx("Configuration of overlayfs filesystem too long.");
 
         if (mount("none", mergeddir, "overlay", 0, data) == -1)
             err("mount(%s, %s)", mergeddir, data);
     } else {
-        snprintf(mergeddir, PATH_MAX, "%s:merged", upperdir);
+        int ret = snprintf(mergeddir, PATH_MAX, "%s:merged", upperdir);
+        if (ret > PATH_MAX)
+            errx("Merge directory too long");
         if (mkdirat(layer_fd, mergeddir, 0777) == -1 && errno != EEXIST)
             err("mkdir(%s)", mergeddir);
         if (mount(upperdir, mergeddir, "ignored", MS_BIND, NULL) == -1)
@@ -461,7 +475,9 @@ void lstart(unsigned flags, char **argv, char **envp)
         const char *files[] = { "/etc/hosts", "/etc/hostname", "/etc/resolv.conf", NULL };
         for (int i = 0; files[i]; i++) {
             char path[PATH_MAX];
-            snprintf(path, PATH_MAX, "%s%s", mergeddir, files[i]);
+            int ret = snprintf(path, PATH_MAX, "%s%s", mergeddir, files[i]);
+            if (ret > PATH_MAX)
+                errx("Path to %s too long", files[i]);
 
             // Ensure the path exists
             int fd = open(path, O_WRONLY | O_CREAT, 0666);
@@ -477,7 +493,9 @@ void lstart(unsigned flags, char **argv, char **envp)
         char path[PATH_MAX];
 
         // Copy /etc/hosts contents
-        snprintf(path, PATH_MAX, "%s/etc/hosts", mergeddir);
+        int ret = snprintf(path, PATH_MAX, "%s/etc/hosts", mergeddir);
+        if (ret > PATH_MAX)
+            errx("Hosts file path too long.");
         FILE *f1 = fopen("/etc/hosts", "r");
         if (!f1)
             err("fopen(%s)", "/etc/hosts");
@@ -492,7 +510,9 @@ void lstart(unsigned flags, char **argv, char **envp)
         fclose(f2);
 
         // Populate /etc/hostname
-        snprintf(path, PATH_MAX, "%s/etc/hostname", mergeddir);
+        ret = snprintf(path, PATH_MAX, "%s/etc/hostname", mergeddir);
+        if (ret > PATH_MAX)
+            errx("Hostname path too long");
 
         char host[HOST_NAME_MAX + 1] = { 0 };
         if (name) {
@@ -513,7 +533,9 @@ void lstart(unsigned flags, char **argv, char **envp)
 
     // Pivot root, or in other words, change the root directory to the merged directory
     char oldroot[PATH_MAX];
-    snprintf(oldroot, PATH_MAX, "%s/old_root", mergeddir);
+    int ret = snprintf(oldroot, PATH_MAX, "%s/old_root", mergeddir);
+    if (ret > PATH_MAX)
+        errx("Path to /old_root too long.");
     if (mkdir(oldroot, 0777) == -1)
         err("mkdir(%s)", oldroot);
     if (syscall(SYS_pivot_root, mergeddir, oldroot) == -1)

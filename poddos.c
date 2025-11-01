@@ -122,14 +122,21 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
                 strcpy(lowerdir, upperdir);
             else {
                 char buf[4096];
-                snprintf(buf, 4096, "%s:%s", upperdir, lowerdir);
+                int ret = snprintf(buf, 4096, "%s:%s", upperdir, lowerdir);
+                if (ret > 4096)
+                    errx("Too many layers");
                 strcpy(lowerdir, buf);
             }
         }
-        if (arg[0] != '/')
-            snprintf(upperdir, 4096, "%s/%s", layer_path, arg);
-        else
-            strncpy(upperdir, arg, 4096);
+        if (arg[0] != '/') {
+            int ret = snprintf(upperdir, 4096, "%s/%s", layer_path, arg);
+            if (ret > 4096)
+                errx("Too many layers");
+        } else {
+            int ret = snprintf(upperdir, 4096, "%s", arg);
+            if (ret > 4096)
+                errx("Path too long: %s", arg);
+        }
         break;
     case 'e':
         penvp = realloc(penvp, (++nenvp) * sizeof(char *));
@@ -144,7 +151,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ephemeral = false;
         break;
     case 'l':
-        strncpy(layer_path, arg, PATH_MAX - 1);
+        int ret = snprintf(layer_path, PATH_MAX, "%s", arg);
+        if (ret > PATH_MAX)
+            errx("Path too long: %s", arg);
         break;
     case 'n':
         name = arg;
@@ -159,12 +168,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         ifname = arg;
         break;
     case 1001: // --mac
-        int ret = sscanf(arg, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+        ret = sscanf(arg, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
                          &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
-        if (ret != 6) {
-            warnx("Invalid mac address provided.");
-            return 1;
-        }
+        if (ret != 6)
+            errx("Invalid mac address provided.");
         break;
     case 1002: // --bind
         char *from = arg;
@@ -175,10 +182,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         } else
             to = from;
 
-        if (from[0] != '/' || to[0] != '/') {
-            warnx("Bind mounts must be absolute paths.");
-            return 1;
-        }
+        if (from[0] != '/' || to[0] != '/')
+            errx("Bind mounts must be absolute paths.");
 
         nbind++;
         bind_to = realloc(bind_to, sizeof(char *) * nbind);
@@ -277,7 +282,7 @@ int main(int argc, char **argv)
     // Build the default layer path if the user did not provide any
     if (!layer_path[0]) {
         if (getenv("LAYERPATH"))
-            strncpy(layer_path, getenv("LAYERPATH"), PATH_MAX - 1);
+            snprintf(layer_path, PATH_MAX, "%s", getenv("LAYERPATH"));
         else if (getenv("XDG_DATA_HOME"))
             snprintf(layer_path, PATH_MAX, "%s/poddos", getenv("XDG_DATA_HOME"));
         else if (getenv("HOME"))
@@ -323,7 +328,15 @@ int main(int argc, char **argv)
         struct argp argp = {
             .options = start_options,
             .parser = parse_opt,
-            .args_doc = "[CMD...]"
+            .args_doc = "[CMD...]",
+            .doc = "Create a new container using a series of overlays as root and start the configured command. "
+                "If the command is started from a tty, a pseudo tty is created and the command is started interactively. "
+                "If this is not the case, standard input, output and error of the command are captured via a pipe and duplicated to/from standard input, output and error of poddos. "
+                "Signals sent to poddos are forwareded to the command. "
+                "If the command exits, poddos exits in the same way (i.e., returns the same exit code or signals with the same signal). "
+                "The path of the command is resolved using the path as set in the configuration of the container. "
+                "By default, no networking is set up, and the network configuration of the host is taken over. "
+                "This behavior can be overriden using the --net flag."
         };
         int cmd_index = 0, cmd_index_from_config = 0, cmd_index_from_override = 0;
         if (argc_from_config)
@@ -362,7 +375,11 @@ int main(int argc, char **argv)
         struct argp argp = {
             .options = exec_options,
             .parser = parse_opt,
-            .args_doc = "CMD..."
+            .args_doc = "CMD...",
+            .doc = "Execute command in running conatiner. "
+                "The path of the command is resolved using the path as set in the configuration of the container, and can be overriden using --env."
+                "Signals sent to poddos are forwareded to the command. "
+                "If the command exits, poddos exits in the same way (i.e., returns the same exit code or signals with the same signal)."
         };
         int cmd_index = 0;
         if (argc_from_config)

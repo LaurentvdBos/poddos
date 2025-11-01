@@ -1,4 +1,4 @@
-CFLAGS = -g -O2 -Wall -Wno-format-truncation -Wno-stringop-truncation
+CFLAGS = -g -O2 -Wall
 LDLIBS = -lssl -lcrypto -lz
 
 poddos: poddos.o http.o inflate.o truncate.o chunked.o pull.o json.o untar.o layer.o net.o dhcp.o prune.o

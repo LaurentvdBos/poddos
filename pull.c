@@ -36,7 +36,9 @@ int pull(const char *full_url)
 
     if (sscanf(full_url, "%1000[^/]/%1000[^:]:%1000s", url, repository, ref) != 3)
         return -1;
-    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, ref);
+    int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, ref);
+    if (ret > URL_MAX)
+        errx("URL too long");
 
     fprintf(stderr, "Retrieving available manifests...\n");
 
@@ -46,14 +48,12 @@ int pull(const char *full_url)
     if (!f)
         return -1;
 
-    char json[65536] = { 0 };
-    int n = fread(json, 1, 65536, f);
-    if (!feof(f))
-        errx("Buffer for json too small");
+    char *json = NULL;
+    size_t n = 0;
+    ssize_t m = getdelim(&json, &n, 0, f);
+    if (m < 0)
+        err("Could not read list of manifests");
     fclose(f);
-
-    if (n == 4096)
-        return -1;
 
     const char *manifests = jget(json, "manifests");
     const char *manifest = NULL;
@@ -91,14 +91,16 @@ int pull(const char *full_url)
         return -1;
     fprintf(stderr, "Retrieving manifest (%s)...\n", digest2);
 
-    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, digest2);
+    ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, digest2);
+    if (ret > URL_MAX)
+        errx("URL too long");
     f = urlopen(url2, 0,
                 "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json");
     if (!f)
         return -1;
-    n = fread(json, 1, 65536, f);
-    if (!feof(f))
-        errx("Buffer too small for manifest");
+    m = getdelim(&json, &n, 0, f);
+    if (m < 0)
+        err("Could not read list of manifests");
     fclose(f);
 
     const char *layers = jget(json, "layers");
@@ -144,7 +146,9 @@ int pull(const char *full_url)
                 return -1;
 
             fprintf(stderr, "Pulling %s...\n", digest);
-            snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
+            int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
+            if (ret > URL_MAX)
+                errx("URL too long");
 
             f = urlopen(url2, 0, media_type);
             if (!f)
@@ -200,15 +204,19 @@ int pull(const char *full_url)
         if (jstr(jget(jget(json, "config"), "digest"), digest, 100) == -1)
             return -1;
 
-        char config[65536] = { 0 };
-        snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
+        int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
+        if (ret > URL_MAX)
+            errx("URL too long");
         f = urlopen(url2, 0,
                     "application/vnd.docker.container.image.v1+json, application/vnd.oci.image.config.v1+json");
         if (!f)
             err("Could not download configuration");
-        n = fread(config, 1, 65536, f);
-        if (!feof(f))
-            errx("Buffer too small.");
+        
+        char *config = NULL;
+        size_t n = 0;
+        ssize_t m = getdelim(&config, &n, 0, f);
+        if (m < 0)
+            err("Could not read configuration");
         fclose(f);
 
         const char *config_name = name;

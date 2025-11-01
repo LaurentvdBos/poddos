@@ -229,6 +229,8 @@ FILE *untar(FILE * f, struct tarfile *file)
         if (!(paxflags & PAX_PATH)) {
             if (tar->prefix[0]) {
                 strncpy(file->path, tar->prefix, 155);
+                file->path[155] = 0;
+
                 strcat(file->path, "/");
                 file->path[156] = 0;
             } else

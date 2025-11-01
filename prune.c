@@ -79,6 +79,11 @@ int prune(const char *layer)
     struct clone_args cl_args = { 0 };
     cl_args.flags = CLONE_NEWUSER;
     cl_args.exit_signal = SIGCHLD;
+
+    // Explicitly flush the streams such that we can do printf in the child
+    // (otherwise buffering may give double output).
+    fflush(NULL);
+
     pid_t pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
     if (pid == -1)
         err("clone3");
@@ -100,9 +105,9 @@ int prune(const char *layer)
         if (unlinkat(layer_fd, layer, AT_REMOVEDIR) == -1)
             err("could not remove %s", layer);
 
-        printf("Removed %s (%d files)\n", layer, n);
+        printf("Removed %s (%d files).\n", layer, n);
 
-        quick_exit(0);
+        exit(0);
     }
     makeugmap(pid);
     close(pipefd[0]);
@@ -171,9 +176,9 @@ void pruneall(bool force)
                 if (!somewhere) {
                     bool remove = force;
 
-                    printf("Layer %s is orphaned.", layer);
+                    printf("Layer %s is orphaned. ", layer);
                     if (!remove) {
-                        printf(" Do you want to remove it? [y/N] ");
+                        printf("Do you want to remove it? [y/N] ");
 
                         char s[16];
                         remove = scanf(" %15s", s) > 0 && !strcmp(s, "y");

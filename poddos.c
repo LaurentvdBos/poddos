@@ -5,8 +5,6 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
-#include <err.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -14,6 +12,7 @@
 #include "pull.h"
 #include "layer.h"
 #include "prune.h"
+#include "poddos.h"
 
 static struct argp_option global_options[] = {
     {"layer", 'l', "PATH", 0, "Path where layers are stored. "
@@ -96,7 +95,7 @@ int dircnt(const char *name)
     int ret = 0;
     DIR *dirp = opendir(name);
     if (!dirp)
-        err(1, "opendir(%s)", name);
+        err("opendir(%s)", name);
     while (readdir(dirp))
         ret++;
     closedir(dirp);
@@ -131,7 +130,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'e':
         penvp = realloc(penvp, (++nenvp) * sizeof(char *));
         if (!penvp)
-            err(1, "realloc(penvp)");
+            err("realloc(penvp)");
         penvp[nenvp - 1] = arg;
         break;
     case 'E':
@@ -180,15 +179,15 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         nbind++;
         bind_to = realloc(bind_to, sizeof(char *) * nbind);
         if (!bind_to)
-            err(1, "realloc");
+            err("realloc");
         bind_from = realloc(bind_from, sizeof(char *) * nbind);
         if (!bind_from)
-            err(1, "realloc");
+            err("realloc");
 
         bind_to[nbind - 1] = to;
         bind_from[nbind - 1] = realpath(from, NULL);
         if (!bind_from[nbind - 1])
-            err(1, "realpath(%s)", from);
+            err("realpath(%s)", from);
 
         break;
     default:
@@ -203,10 +202,10 @@ int loadconfig(char ***argv, char *action, char *override)
     int argc = 1;
     *argv = malloc(sizeof(char **));
     if (!*argv)
-        err(1, "malloc");
+        err("malloc");
     (*argv)[0] = malloc(strlen(action) + strlen("poddos") + 2);
     if (!(*argv)[0])
-        err(1, "malloc");
+        err("malloc");
     sprintf((*argv)[0], "%s-%s", "poddos", action);
 
     char file[PATH_MAX];
@@ -235,10 +234,10 @@ int loadconfig(char ***argv, char *action, char *override)
         else if (parsing) {
             *argv = realloc(*argv, (++argc) * sizeof(char **));
             if (!*argv)
-                err(1, "realloc");
+                err("realloc");
             (*argv)[argc - 1] = malloc(strlen(buf) + 1);
             if (!(*argv)[argc - 1])
-                err(1, "malloc");
+                err("malloc");
             strcpy((*argv)[argc - 1], buf);
         }
     }
@@ -248,7 +247,7 @@ int loadconfig(char ***argv, char *action, char *override)
     // Add the final NULL
     *argv = realloc(*argv, (argc + 1) * sizeof(char **));
     if (!argv)
-        err(1, "realloc");
+        err("realloc");
     (*argv)[argc] = NULL;
 
     return argc;
@@ -281,13 +280,13 @@ int main(int argc, char **argv)
     }
     // Ensure the layer path exists
     if (mkdir(layer_path, 0777) == -1 && errno != EEXIST)
-        err(1, "mkdir(%s)", layer_path);
+        err("mkdir(%s)", layer_path);
 
     layer_fd = open(layer_path, O_DIRECTORY | O_CLOEXEC);
     if (layer_fd == -1)
-        err(1, "open(%s)", layer_path);
+        err("open(%s)", layer_path);
     if (mkdirat(layer_fd, "ephemeral", 0777) == -1 && errno != EEXIST)
-        err(1, "mkdir(ephemeral)");
+        err("mkdir(ephemeral)");
 
     int argc_from_config = 0;
     char **argv_from_config = NULL;
@@ -327,14 +326,14 @@ int main(int argc, char **argv)
         argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, &cmd_index, NULL);
 
         if (!upperdir[0])
-            errx(1, "At least one overlay directory should be provided");
+            errx("At least one overlay directory should be provided");
         if (arg_index + cmd_index >= argc && cmd_index_from_config >= argc_from_config
             && cmd_index_from_override >= argc_from_override)
-            errx(1, "No command to exeute");
+            errx("No command to exeute");
 
         penvp = realloc(penvp, (++nenvp) * sizeof(char *));
         if (!penvp)
-            err(1, "realloc(penvp)");
+            err("realloc(penvp)");
         penvp[nenvp - 1] = NULL;
 
         if (arg_index + cmd_index < argc)
@@ -366,13 +365,13 @@ int main(int argc, char **argv)
         argp_parse(&argp, argc - arg_index, argv + arg_index, ARGP_IN_ORDER, &cmd_index, NULL);
 
         if (!name)
-            errx(1, "Can only exec in named containers");
+            errx("Can only exec in named containers");
         if (arg_index + cmd_index >= argc)
-            errx(1, "No command to exeute");
+            errx("No command to exeute");
 
         penvp = realloc(penvp, (++nenvp) * sizeof(char *));
         if (!penvp)
-            err(1, "realloc(penvp)");
+            err("realloc(penvp)");
         penvp[nenvp - 1] = NULL;
 
         pargv = argv + arg_index + cmd_index;
@@ -399,7 +398,7 @@ int main(int argc, char **argv)
         if (prune_all)
             pruneall(force);
     } else
-        fprintf(stderr, "Unrecognized action '%s'.\n", argv[arg_index]);
+        errx("Unrecognized action '%s'.", argv[arg_index]);
 
     close(layer_fd);
     return 0;

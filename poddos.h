@@ -2,6 +2,13 @@
 #define PODDOS_H
 
 #include <limits.h>
+#include <error.h>
+#include <errno.h>
+
+#define err(...) error_at_line(42, errno, __FILE__, __LINE__, __VA_ARGS__)
+#define errx(...) error_at_line(42, 0, __FILE__, __LINE__, __VA_ARGS__)
+#define warn(...) error_at_line(0, errno, __FILE__, __LINE__, __VA_ARGS__)
+#define warnx(...) error_at_line(0, 0, __FILE__, __LINE__, __VA_ARGS__)
 
 int dircnt(const char *name);
 

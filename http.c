@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <ctype.h>
-#include <err.h>
 #include <netdb.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -20,6 +19,7 @@
 #include "inflate.h"
 #include "http.h"
 #include "json.h"
+#include "poddos.h"
 
 static SSL_CTX *ssl_ctx = NULL;
 
@@ -118,7 +118,7 @@ static ssize_t ssl_read(void *cookie, char *buf, size_t size)
     case SSL_ERROR_ZERO_RETURN:
         return 0;
     case SSL_ERROR_SYSCALL:
-        err(1, "ssl_read");
+        err("ssl_read");
     default:
         return -1;
     }
@@ -133,7 +133,7 @@ static ssize_t ssl_write(void *cookie, const char *buf, size_t size)
     case SSL_ERROR_NONE:
         return ret;
     case SSL_ERROR_SYSCALL:
-        err(1, "ssl_write");
+        err("ssl_write");
     default:
         return 0;
     }
@@ -292,13 +292,13 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
 
             FILE *f_bearer = urlopen(bearer_url, flags | HTTP_IGNBEARER, "text/json");
             if (!f_bearer)
-                errx(1, "Could not open %s", bearer_url);
+                errx("Could not open %s", bearer_url);
 
             char json[16384];
             if (!fread(json, 1, 16384, f_bearer))
-                errx(1, "Could not read from %s", bearer_url);
+                errx("Could not read from %s", bearer_url);
             if (!feof(f_bearer))
-                errx(1, "Buffer too short");
+                errx("Buffer too short");
             fclose(f_bearer);
 
             jstr(jget(json, "token"), token, 16384);

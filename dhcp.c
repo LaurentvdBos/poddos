@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 #include <arpa/inet.h>
-#include <err.h>
 #include <net/ethernet.h>
 #include <net/if.h>
 #include <net/route.h>
@@ -306,7 +305,7 @@ void dhcpsend(int sock)
     addr_ll.sll_halen = ETHER_ADDR_LEN;
 
     if (sendto(sock, buf, len, 0, (struct sockaddr *) &addr_ll, sizeof(struct sockaddr_ll)) == -1)
-        err(1, "sendto");
+        err("sendto");
 }
 
 int dhcpstep(char *ifname, int sock)
@@ -315,7 +314,7 @@ int dhcpstep(char *ifname, int sock)
     char buf[65535];
 
     if ((n = recv(sock, buf, 65535, 0)) == -1)
-        err(1, "recv");
+        err("recv");
 
     const size_t minsize = sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct dhcphdr) + 1;
     if (n < minsize)
@@ -353,17 +352,17 @@ int dhcpstep(char *ifname, int sock)
             // Set ip
             sai->sin_addr.s_addr = yiaddr;
             if (ioctl(sock, SIOCSIFADDR, &req) == -1)
-                err(1, "ioctl(SIOCSIFADDR)");
+                err("ioctl(SIOCSIFADDR)");
 
             // Set netmask
             memcpy(&sai->sin_addr, optget(options, SUBNET_MASK), 4);
             if (ioctl(sock, SIOCSIFNETMASK, &req) == -1)
-                err(1, "ioctl(SIOCIFNETMASK)");
+                err("ioctl(SIOCIFNETMASK)");
 
             // Set broadcast address
             memcpy(&sai->sin_addr, optget(options, BROADCAST), 4);
             if (ioctl(sock, SIOCSIFBRDADDR, &req) == -1)
-                err(1, "ioctl(SIOCSIFBRDADDR)");
+                err("ioctl(SIOCSIFBRDADDR)");
 
             // Set a default routing entry (the "gateway")
             struct rtentry route = { 0 };
@@ -383,7 +382,7 @@ int dhcpstep(char *ifname, int sock)
 
             ioctl(sock, SIOCDELRT, &route); // Errors are ignored
             if (ioctl(sock, SIOCADDRT, &route) == -1)
-                err(1, "ioctl(SIOCADDRT)");
+                err("ioctl(SIOCADDRT)");
 
             // Create a /etc/resolv.conf
             FILE *f = fopen("/etc/resolv.conf", "w");
@@ -427,24 +426,24 @@ int dhcpstart(char *ifname)
 
     while (!xid) {
         if (getrandom(&xid, sizeof(xid), 0) == -1)
-            err(1, "getrandom");
+            err("getrandom");
     }
 
     // Get a raw socket
     sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IP));
     if (sock == -1)
-        err(1, "socket");
+        err("socket");
 
     // Get the index of the interface;
     strncpy(req.ifr_name, ifname, IFNAMSIZ);
     if (ioctl(sock, SIOCGIFINDEX, &req) == -1)
-        err(1, "ioctl(SIOCGIFINDEX)");
+        err("ioctl(SIOCGIFINDEX)");
     ifindex = req.ifr_ifindex;
 
     // Get the mac address of the interface
     strncpy(req.ifr_name, ifname, IFNAMSIZ);
     if (ioctl(sock, SIOCGIFHWADDR, &req) == -1)
-        err(1, "ioctl(SIOCGIFHWADDR)");
+        err("ioctl(SIOCGIFHWADDR)");
     memcpy(mac, &req.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
 
     // Bind the socket to the provided index and start receiving IP packages.
@@ -454,7 +453,7 @@ int dhcpstart(char *ifname)
     addr_ll.sll_protocol = htons(ETH_P_IP);
     addr_ll.sll_ifindex = ifindex;
     if (bind(sock, (struct sockaddr *) &addr_ll, sizeof(struct sockaddr_ll)) == -1)
-        err(1, "bind");
+        err("bind");
 
     // Initiate a DHCP handshake
     dhcpsend(sock);

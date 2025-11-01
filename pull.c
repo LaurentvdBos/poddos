@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -50,7 +49,7 @@ int pull(const char *full_url)
     char json[65536] = { 0 };
     int n = fread(json, 1, 65536, f);
     if (!feof(f))
-        errx(1, "Buffer for json too small");
+        errx("Buffer for json too small");
     fclose(f);
 
     if (n == 4096)
@@ -99,7 +98,7 @@ int pull(const char *full_url)
         return -1;
     n = fread(json, 1, 65536, f);
     if (!feof(f))
-        errx(1, "Buffer too small for manifest");
+        errx("Buffer too small for manifest");
     fclose(f);
 
     const char *layers = jget(json, "layers");
@@ -107,20 +106,20 @@ int pull(const char *full_url)
 
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) == -1)
-        err(1, "pipe");
+        err("pipe");
 
     struct clone_args cl_args = { 0 };
     cl_args.flags = CLONE_NEWUSER;
     cl_args.exit_signal = SIGCHLD;
     pid_t pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
     if (pid == -1)
-        err(1, "clone3");
+        err("clone3");
     if (pid == 0) {
         // Child, wait for the parent to setup the uid / gid map
         close(pipefd[1]);
         char buf;
         if (read(pipefd[0], &buf, 1) == -1)
-            err(1, "read(pipefd)");
+            err("read(pipefd)");
         close(pipefd[0]);
 
         for (int i = 0; (layer = jindex(layers, i)); i++) {
@@ -130,14 +129,14 @@ int pull(const char *full_url)
 
             char *dir = strrchr(digest, ':');
             if (!dir)
-                errx(1, "Invalid digest: %s", digest);
+                errx("Invalid digest: %s", digest);
 
             if (mkdirat(layer_fd, dir + 1, 0777) == -1) {
                 if (errno == EEXIST) {
                     fprintf(stderr, "Skipping %s...\n", digest);
                     continue;
                 } else
-                    err(1, "mkdir(%s)", dir + 1);
+                    err("mkdir(%s)", dir + 1);
             }
 
             char media_type[100];
@@ -163,7 +162,7 @@ int pull(const char *full_url)
                 fprintf(stderr, "%s...\n", file.path);
                 if (!strncmp(basename(file.path), ".wh.", 4)) {
                     if (!strcmp(basename(file.path), ".wh..wh..opq"))
-                        err(1, "Opaque whiteouts are not implemented");
+                        err("Opaque whiteouts are not implemented");
 
                     // Make the path that should be removed
                     char path[PATH_MAX];
@@ -171,7 +170,7 @@ int pull(const char *full_url)
                     strcpy(strrchr(path, '/') + 1, strrchr(path, '/') + 5);
 
                     if (mknodat(dir_fd, path, 0777, makedev(0, 0)) == -1)
-                        err(1, "mknod(%s, 0777, (0, 0))", path);
+                        err("mknod(%s, 0777, (0, 0))", path);
                 } else
                     tarwrite(file, data, dir_fd);
                 fclose(data);
@@ -188,9 +187,9 @@ int pull(const char *full_url)
 
     int wstatus;
     if (wait(&wstatus) == -1)
-        err(1, "wait");
+        err("wait");
     if (!WIFEXITED(wstatus) || WEXITSTATUS(wstatus))
-        errx(WEXITSTATUS(wstatus), "Child crashed.");
+        errx("Child crashed (exit status %d).", WEXITSTATUS(wstatus));
 
     // When done, write the configuration, but only if this is a named container
     digest = jget(jget(json, "config"), "digest");
@@ -206,10 +205,10 @@ int pull(const char *full_url)
         f = urlopen(url2, 0,
                     "application/vnd.docker.container.image.v1+json, application/vnd.oci.image.config.v1+json");
         if (!f)
-            err(1, "Could not download configuration");
+            err("Could not download configuration");
         n = fread(config, 1, 65536, f);
         if (!feof(f))
-            errx(1, "Buffer too small.");
+            errx("Buffer too small.");
         fclose(f);
 
         const char *config_name = name;
@@ -223,7 +222,7 @@ int pull(const char *full_url)
 
         int fd = openat(layer_fd, config_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd == -1)
-            err(1, "open(%s)", config_name);
+            err("open(%s)", config_name);
         FILE *f = fdopen(fd, "w");
         fprintf(f, "[pull]\n--url=%s\n\n", full_url);
 
@@ -232,7 +231,7 @@ int pull(const char *full_url)
         for (int i = 0; (layer = jindex(layers, i)); i++) {
             char digest[1000];
             if (jstr(jget(layer, "digest"), digest, 1000) == -1)
-                errx(1, "Could not parse layers %s", layer);
+                errx("Could not parse layers %s", layer);
 
             fprintf(f, "--overlay=%s\n", strrchr(digest, ':') + 1);
         }
@@ -241,7 +240,7 @@ int pull(const char *full_url)
         for (int i = 0; (envir = jindex(jget(jget(config, "config"), "Env"), i)); i++) {
             char buf[1000];
             if (jstr(envir, buf, 1000) == -1)
-                errx(1, "Could not parse environmental variables");
+                errx("Could not parse environmental variables");
 
             fprintf(f, "--env=%s\n", buf);
         }
@@ -255,7 +254,7 @@ int pull(const char *full_url)
         for (int i = 0; (entry_point = jindex(jget(jget(config, "config"), "Entrypoint"), i)); i++) {
             char buf[1000];
             if (jstr(entry_point, buf, 1000) == -1)
-                errx(1, "Could not parse entry point");
+                errx("Could not parse entry point");
 
             fprintf(f, "%s\n", buf);
         }
@@ -264,7 +263,7 @@ int pull(const char *full_url)
         for (int i = 0; (cmd = jindex(jget(jget(config, "config"), "Cmd"), i)); i++) {
             char buf[1000];
             if (jstr(cmd, buf, 1000) == -1)
-                errx(1, "Could not parse command line");
+                errx("Could not parse command line");
 
             fprintf(f, "%s\n", buf);
         }

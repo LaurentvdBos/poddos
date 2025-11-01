@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/limits.h>
@@ -46,7 +45,7 @@ void makeugmap(pid_t pid)
             snprintf(cmd, 1024, "newuidmap %d 0 %d 1 1 %d %d", pid, uid, subid, subidcount);
             retuid = system(cmd);
             if (retuid == -1)
-                err(1, "system(%s)", cmd);
+                err("system(%s)", cmd);
         }
     }
     fclose(f);
@@ -59,7 +58,7 @@ void makeugmap(pid_t pid)
             snprintf(cmd, 1024, "newgidmap %d 0 %d 1 1 %d %d", pid, gid, subid, subidcount);
             retgid = system(cmd);
             if (retgid == -1)
-                err(1, "system(%s)", cmd);
+                err("system(%s)", cmd);
         }
     }
     fclose(f);
@@ -69,11 +68,11 @@ void makeugmap(pid_t pid)
         snprintf(buf, 4096, "/proc/%d/uid_map", pid);
         int fd = open(buf, O_WRONLY);
         if (fd == -1)
-            err(1, "open(%s)", buf);
+            err("open(%s)", buf);
 
         int n = snprintf(buf, 4096, "%8u %8u %8lu\n", 0, uid, (uid != 0 ? 1 : 4294967295));
         if (write(fd, buf, n) == -1)
-            err(1, "write(uid_map)");
+            err("write(uid_map)");
 
         close(fd);
     }
@@ -85,20 +84,20 @@ void makeugmap(pid_t pid)
             snprintf(buf, 4096, "/proc/%d/setgroups", pid);
             int fd = open(buf, O_WRONLY);
             if (fd == -1)
-                err(1, "open(%s)", buf);
+                err("open(%s)", buf);
             if (write(fd, "deny", strlen("deny")) == -1)
-                err(1, "write(setgroups)");
+                err("write(setgroups)");
             close(fd);
         }
 
         snprintf(buf, 4096, "/proc/%d/gid_map", pid);
         int fd = open(buf, O_WRONLY);
         if (fd == -1)
-            err(1, "open(%s)", buf);
+            err("open(%s)", buf);
 
         int n = snprintf(buf, 4096, "%8u %8u %8lu\n", 0, gid, (uid != 0 ? 1 : 4294967295));
         if (write(fd, buf, n) == -1)
-            err(1, "write(gid_map)");
+            err("write(gid_map)");
 
         close(fd);
     }
@@ -113,14 +112,14 @@ void forktochild()
     if (istty) {
         struct winsize ws;
         if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1)
-            err(1, "ioctl(TIOCGWINSZ)");
+            err("ioctl(TIOCGWINSZ)");
         tcgetattr(STDIN_FILENO, &termp);
         pid = forkpty(&infd, NULL, &termp, &ws);
         outfd = infd;
     } else {
         int infds[2], outfds[2], errfds[2];
         if (pipe2(infds, O_CLOEXEC) == -1 || pipe2(outfds, O_CLOEXEC) == -1 || pipe2(errfds, O_CLOEXEC) == -1)
-            err(1, "pipe");
+            err("pipe");
         infd = infds[1];
         outfd = outfds[0];
         errfd = errfds[0];
@@ -143,12 +142,12 @@ void forktochild()
     }
 
     if (pid == -1)
-        err(1, "fork");
+        err("fork");
     if (pid > 0) {
         if (namefd > 0) {
             int fdpid = openat(namefd, name, O_WRONLY | O_CREAT, 0644);
             if (fdpid == -1)
-                err(1, "open(%s)", name);
+                err("open(%s)", name);
             FILE *f = fdopen(fdpid, "w");
             fprintf(f, "%d\n", pid);
             fclose(f);
@@ -166,12 +165,12 @@ void forktochild()
 
         // ... block all signals ...
         if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1)
-            err(1, "sigprocmask");
+            err("sigprocmask");
 
         // ... and create a file pointer that becomes readable for all signals
         int sfd = signalfd(-1, &mask, SFD_CLOEXEC);
         if (sfd == -1)
-            err(1, "signalfd");
+            err("signalfd");
 
         const nfds_t nfds = 9;
         struct pollfd pfds[] = {
@@ -200,30 +199,30 @@ void forktochild()
             if (poll(pfds, nfds, -1) == -1) {
                 if (errno == EINTR)
                     continue;
-                err(1, "poll");
+                err("poll");
             }
             if (pfds[0].revents & POLLOUT) {
                 // stdin of the process is writable, and we have stuff to write
                 ssize_t n;
                 if ((n = write(infd, bufin, nin)) == -1)
-                    err(1, "write(infd)");
+                    err("write(infd)");
                 memmove(bufin, bufin + n, nin - n);
                 nin -= n;
             }
             if (pfds[1].revents & POLLIN) {
                 // stdout of process contains data, and we have an empty buffer
                 if ((nout = read(outfd, bufout, 1024)) == -1)
-                    err(1, "read(outfd)");
+                    err("read(outfd)");
             }
             if (pfds[2].revents & POLLIN) {
                 // stderr of process contains data, and we have an empty buffer
                 if ((nerr = read(errfd, buferr, 1024)) == -1)
-                    err(1, "read(errfd)");
+                    err("read(errfd)");
             }
             if (pfds[3].revents & POLLIN) {
                 // Our stdin has data
                 if ((nin = read(STDIN_FILENO, bufin, 1024)) == -1)
-                    err(1, "read(stdin)");
+                    err("read(stdin)");
 
                 if (!nin) {
                     // stdin is end of file, so closed
@@ -242,7 +241,7 @@ void forktochild()
                 // Our stdout is writable, and we have stuff to write
                 ssize_t n;
                 if ((n = write(STDOUT_FILENO, bufout, nout)) == -1)
-                    err(1, "write(stdout)");
+                    err("write(stdout)");
                 memmove(bufout, bufout + n, nout - n);
                 nout -= n;
             }
@@ -250,7 +249,7 @@ void forktochild()
                 // Our stderr is writable, and we have stuff to write
                 ssize_t n;
                 if ((n = write(STDERR_FILENO, buferr, nerr)) == -1)
-                    err(1, "write(stderr)");
+                    err("write(stderr)");
                 memmove(buferr, buferr + n, nerr - n);
                 nerr -= n;
             }
@@ -277,7 +276,7 @@ void forktochild()
                         .it_interval = { 0 }
                     };
                     if (timerfd_settime(timefd, 0, &val, NULL) == -1)
-                        err(1, "timerfd_settime");
+                        err("timerfd_settime");
                 }
             }
             if (pfds[7].revents & POLLIN) {
@@ -285,15 +284,15 @@ void forktochild()
                 struct signalfd_siginfo fdsi;
                 int n = read(sfd, &fdsi, sizeof(fdsi));
                 if (n != sizeof(fdsi))
-                    err(1, "read(sfd)");
+                    err("read(sfd)");
 
                 if (fdsi.ssi_signo == SIGWINCH && istty) {
                     // SIGWINCH should not be blindly forwarded, but handled via an ioctl
                     struct winsize ws;
                     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1)
-                        err(1, "ioctl(TIOCGWINSZ)");
+                        err("ioctl(TIOCGWINSZ)");
                     if (ioctl(infd, TIOCSWINSZ, &ws) == -1)
-                        err(1, "ioctl(TIOCSWINSZ)");
+                        err("ioctl(TIOCSWINSZ)");
                 } else if (fdsi.ssi_signo == SIGCHLD) {
                     // SIGCHLD indicates that the child exited
                     break;
@@ -314,7 +313,7 @@ void forktochild()
                     .it_interval = { 0 }
                 };
                 if (timerfd_settime(timefd, 0, &val, NULL) == -1)
-                    err(1, "timerfd_settime");
+                    err("timerfd_settime");
             }
         }
 
@@ -323,7 +322,7 @@ void forktochild()
 
         int wstatus;
         if (wait(&wstatus) == -1)
-            err(1, "wait");
+            err("wait");
 
         // Remove the macvlan, init is going to leave the namespace and
         // in some cases the kernel does not properly clean up the
@@ -349,7 +348,7 @@ void forktochild()
 
             // Unblock and raise the signal
             if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
-                err(1, "sigprocmask");
+                err("sigprocmask");
             raise(WTERMSIG(wstatus));
         }
     }
@@ -359,7 +358,7 @@ void lstart(unsigned flags, char **argv, char **envp)
 {
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) == -1)
-        err(1, "pipe");
+        err("pipe");
 
     pid_t pid = fork();
     if (pid == 0) {
@@ -382,31 +381,31 @@ void lstart(unsigned flags, char **argv, char **envp)
         char *tmpdir = getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/tmp";
         snprintf(namedir, PATH_MAX - 1, "%s/poddos", tmpdir);
         if (mkdir(namedir, 0777) == -1 && errno != EEXIST)
-            err(1, "mkdir(%s)", namedir);
+            err("mkdir(%s)", namedir);
         namefd = open(namedir, O_DIRECTORY | O_CLOEXEC);
         if (namefd == -1)
-            err(1, "open(%s)", namedir);
+            err("open(%s)", namedir);
     }
 
     unsigned uflags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID;
     if (flags & LAYER_NET)
         uflags |= CLONE_NEWNET | CLONE_NEWUTS;
     if (unshare(uflags) == -1)
-        err(1, "unshare");
+        err("unshare");
 
     close(pipefd[0]);
     close(pipefd[1]);
 
     int wstatus;
     if (wait(&wstatus) == -1)
-        err(1, "wait");
+        err("wait");
     if (!WIFEXITED(wstatus) || WEXITSTATUS(wstatus))
-        errx(WEXITSTATUS(wstatus), "Child crashed");
+        errx("Child crashed (exit status %d).", WEXITSTATUS(wstatus));
 
     // Ensure mount events remain in this namespace. This should already happen
     // by default actually.
     if (mount("ignored", "/", "ignored", MS_PRIVATE | MS_REC, NULL) == -1)
-        err(1, "mount(MS_PRIVATE | MS_REC)");
+        err("mount(MS_PRIVATE | MS_REC)");
 
     // In ephemeral mode, add another layer to the overlays, but make that a
     // tmpfs. Ephemeral mode is only properly supported with recent Linux
@@ -416,7 +415,7 @@ void lstart(unsigned flags, char **argv, char **envp)
         char ephemeral[PATH_MAX];
         snprintf(ephemeral, PATH_MAX, "%s/ephemeral", layer_path);
         if (mount("none", ephemeral, "tmpfs", 0, "mode=777") == -1)
-            err(1, "mount(%s)", ephemeral);
+            err("mount(%s)", ephemeral);
         if (upperdir[0] && dircnt(upperdir) > 2) {
             if (!lowerdir[0])
                 strcpy(lowerdir, upperdir);
@@ -428,7 +427,7 @@ void lstart(unsigned flags, char **argv, char **envp)
         }
         snprintf(upperdir, PATH_MAX, "%s/upper", ephemeral);
         if (mkdir(upperdir, 0777) == -1)
-            err(1, "mkdir(%s)", upperdir);
+            err("mkdir(%s)", upperdir);
     }
     // Build up the overlayfs; unless there is no lowerdir, since then there is no real overlay
     char mergeddir[PATH_MAX];
@@ -437,21 +436,21 @@ void lstart(unsigned flags, char **argv, char **envp)
         snprintf(workdir, PATH_MAX, "%s:work", upperdir);
         snprintf(mergeddir, PATH_MAX, "%s:merged", upperdir);
         if (mkdir(workdir, 0777) == -1 && errno != EEXIST)
-            err(1, "mkdir(%s)", workdir);
+            err("mkdir(%s)", workdir);
         if (mkdir(mergeddir, 0777) == -1 && errno != EEXIST)
-            err(1, "mkdir(%s)", mergeddir);
+            err("mkdir(%s)", mergeddir);
 
         char data[4096];
         snprintf(data, 4096, "lowerdir=%s,upperdir=%s,workdir=%s,xino=off,userxattr", lowerdir, upperdir, workdir);
 
         if (mount("none", mergeddir, "overlay", 0, data) == -1)
-            err(1, "mount(%s, %s)", mergeddir, data);
+            err("mount(%s, %s)", mergeddir, data);
     } else {
         snprintf(mergeddir, PATH_MAX, "%s:merged", upperdir);
         if (mkdirat(layer_fd, mergeddir, 0777) == -1 && errno != EEXIST)
-            err(1, "mkdir(%s)", mergeddir);
+            err("mkdir(%s)", mergeddir);
         if (mount(upperdir, mergeddir, "ignored", MS_BIND, NULL) == -1)
-            err(1, "mount(%s, %s, MS_BIND)", upperdir, mergeddir);
+            err("mount(%s, %s, MS_BIND)", upperdir, mergeddir);
     }
 
     // Configure networking: without separate networking, the configuration
@@ -467,12 +466,12 @@ void lstart(unsigned flags, char **argv, char **envp)
             // Ensure the path exists
             int fd = open(path, O_WRONLY | O_CREAT, 0666);
             if (fd == -1)
-                err(1, "open(%s)", path);
+                err("open(%s)", path);
             close(fd);
 
             // Make the bind mount
             if (mount(files[i], path, "ignored", MS_BIND, NULL) == -1)
-                err(1, "mount(%s)", path);
+                err("mount(%s)", path);
         }
     } else {
         char path[PATH_MAX];
@@ -481,10 +480,10 @@ void lstart(unsigned flags, char **argv, char **envp)
         snprintf(path, PATH_MAX, "%s/etc/hosts", mergeddir);
         FILE *f1 = fopen("/etc/hosts", "r");
         if (!f1)
-            err(1, "fopen(%s)", "/etc/hosts");
+            err("fopen(%s)", "/etc/hosts");
         FILE *f2 = fopen(path, "w");
         if (!f2)
-            err(1, "fopen(%s)", path);
+            err("fopen(%s)", path);
         int c;
         while ((c = fgetc(f1)) != EOF) {
             fputc(c, f2);
@@ -499,13 +498,13 @@ void lstart(unsigned flags, char **argv, char **envp)
         if (name) {
             strncpy(host, name, HOST_NAME_MAX);
             if (sethostname(host, strlen(host)) == -1)
-                err(1, "sethostname(%s)", host);
+                err("sethostname(%s)", host);
         } else
             gethostname(host, HOST_NAME_MAX + 1);
 
         FILE *f = fopen(path, "w");
         if (!f)
-            err(1, "fopen(%s)", path);
+            err("fopen(%s)", path);
         fprintf(f, "%s\n", host);
         fclose(f);
 
@@ -516,28 +515,28 @@ void lstart(unsigned flags, char **argv, char **envp)
     char oldroot[PATH_MAX];
     snprintf(oldroot, PATH_MAX, "%s/old_root", mergeddir);
     if (mkdir(oldroot, 0777) == -1)
-        err(1, "mkdir(%s)", oldroot);
+        err("mkdir(%s)", oldroot);
     if (syscall(SYS_pivot_root, mergeddir, oldroot) == -1)
-        err(1, "pivot_root(%s, %s)", mergeddir, oldroot);
+        err("pivot_root(%s, %s)", mergeddir, oldroot);
     if (chdir("/") == -1)
-        err(1, "chdir(/)");
+        err("chdir(/)");
 
     // Populate /dev with the usual things. The mode=755 ensure there is no
     // 'sticky' bit, which blocks writing to a device with -EACCES
     if (mount("none", "/dev", "tmpfs", MS_NOSUID, "mode=755") == -1)
-        err(1, "mount(/dev)");
+        err("mount(/dev)");
     if (symlink("/proc/self/fd", "/dev/fd") == -1)
-        err(1, "symlink(/proc/self/fd, /dev/fd)");
+        err("symlink(/proc/self/fd, /dev/fd)");
     if (symlink("/proc/self/fd/0", "/dev/stdin") == -1)
-        err(1, "symlink(/proc/self/fd/0, /dev/stdin)");
+        err("symlink(/proc/self/fd/0, /dev/stdin)");
     if (symlink("/proc/self/fd/1", "/dev/stdout") == -1)
-        err(1, "symlink(/proc/self/fd/1, /dev/stdout)");
+        err("symlink(/proc/self/fd/1, /dev/stdout)");
     if (symlink("/proc/self/fd/2", "/dev/stderr") == -1)
-        err(1, "symlink(/proc/self/fd/2, /dev/stderr)");
+        err("symlink(/proc/self/fd/2, /dev/stderr)");
     if (mkdir("/dev/shm", 0777) == -1)
-        err(1, "mkdir(/dev/shm)");
+        err("mkdir(/dev/shm)");
     if (mount("none", "/dev/shm", "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") == -1)
-        err(1, "mount(/dev/shm)");
+        err("mount(/dev/shm)");
 
     // Make bind mounts for /dev/null (mknod is blocked in namespaces)
     const char *devs[] = { "null", "zero", "full", "random", "urandom", "tty", NULL };
@@ -549,39 +548,39 @@ void lstart(unsigned flags, char **argv, char **envp)
         // Ensure the file exists
         int fd = open(path, O_WRONLY | O_CREAT, 0666);
         if (fd == -1)
-            err(1, "open(%s)", path);
+            err("open(%s)", path);
         close(fd);
 
         // Make the bind mount
         if (mount(old_path, path, "ignored", MS_BIND, NULL) == -1)
-            err(1, "mount(%s)", path);
+            err("mount(%s)", path);
     }
     // Mount mqueue
     if (mkdir("/dev/mqueue", 0777) == -1)
-        err(1, "mkdir(/dev/mqueue)");
+        err("mkdir(/dev/mqueue)");
     if (mount("none", "/dev/mqueue", "mqueue", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) == -1)
-        err(1, "mount(/dev/mqueue)");
+        err("mount(/dev/mqueue)");
 
     // Mount the pty, which allows to create new pseudo ttys
     if (mkdir("/dev/pts", 0777) == -1)
-        err(1, "mkdir(/dev/pts)");
+        err("mkdir(/dev/pts)");
     if (mount("none", "/dev/pts", "devpts", 0, "newinstance,mode=620,ptmxmode=666,gid=5") == -1)
-        err(1, "mount(/dev/pts)");
+        err("mount(/dev/pts)");
     if (symlink("pts/ptmx", "/dev/ptmx") == -1)
-        err(1, "symlink(pts/ptmx, /dev/ptmx)");
+        err("symlink(pts/ptmx, /dev/ptmx)");
 
     // Mount /dev/net/tun
     if (mkdir("/dev/net", 0777) == -1)
-        err(1, "mkdir(/dev/net)");
+        err("mkdir(/dev/net)");
     int fd = open("/dev/net/tun", O_WRONLY | O_CREAT, 0666);
     if (fd > -1)
         close(fd);
     if (mount("/old_root/dev/net/tun", "/dev/net/tun", "ignored", MS_BIND, NULL) == -1)
-        err(1, "mount(/dev/net/tun)");
+        err("mount(/dev/net/tun)");
 
     // Make a timer file descriptor before forking
     if ((flags & LAYER_NET) && (timefd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC | TFD_NONBLOCK)) == -1)
-        err(1, "timefd_create");
+        err("timefd_create");
 
     // Fork to get pid 1, this will also get us a pty if needed
     forktochild();
@@ -596,21 +595,21 @@ void lstart(unsigned flags, char **argv, char **envp)
             .it_interval = { 0 }
         };
         if (timerfd_settime(timefd, 0, &val, NULL) == -1)
-            err(1, "timerfd_settime");
+            err("timerfd_settime");
 
         close(timefd);
     }
     // Mount /proc (now that we are pid 1)
     if (mount("none", "/proc", "proc", MS_NODEV | MS_NOSUID | MS_NOEXEC, NULL) == -1)
-        err(1, "mount(/proc)");
+        err("mount(/proc)");
 
     // Mount /sys (could fail if we do not have a network namespace)
     if (mount("none", "/sys", "sysfs", 0, NULL) == -1) {
         if (mount("/old_root/sys", "/sys", "ignored", MS_BIND | MS_REC, NULL) == -1)
-            err(1, "mount(/old_root/sys, /sys)");
+            err("mount(/old_root/sys, /sys)");
     } else {
         if (mount("none", "/sys/fs/cgroup", "cgroup2", 0, NULL) == -1)
-            err(1, "mount(/sys/fs/cgroup)");
+            err("mount(/sys/fs/cgroup)");
     }
 
     // Make the additional bind mounts that the user requested
@@ -634,20 +633,20 @@ void lstart(unsigned flags, char **argv, char **envp)
                 warn("mkdir(%s)", path_to);
             close(fd);
         } else
-            err(1, "open(%s)", path_from);
+            err("open(%s)", path_from);
 
         if (mount(path_from, path_to, "ignored", MS_BIND | MS_REC, NULL) == -1)
-            err(1, "mount(%s)", path_to);
+            err("mount(%s)", path_to);
     }
 
     if (umount2("/old_root", MNT_DETACH) == -1)
-        err(1, "umount2(/old_root, MNT_DETACH)");
+        err("umount2(/old_root, MNT_DETACH)");
     if (rmdir("/old_root") == -1)
-        err(1, "rmdir(/old_root)");
+        err("rmdir(/old_root)");
 
     // Change directory specified by the user
     if (directory && chdir(directory) == -1)
-        err(1, "chdir(%s)", directory);
+        err("chdir(%s)", directory);
 
     // Set up the environment such that execvp works
     clearenv();
@@ -655,7 +654,7 @@ void lstart(unsigned flags, char **argv, char **envp)
         putenv(envp[i]);
 
     execvp(argv[0], argv);
-    err(1, "execv");
+    err("execv");
 }
 
 void lexec(unsigned flags, char **argv, char **envp)
@@ -667,21 +666,21 @@ void lexec(unsigned flags, char **argv, char **envp)
     pid_t pid;
     FILE *f = fopen(namefile, "r");
     if (!f)
-        err(1, "fopen(%s)", namefile);
+        err("fopen(%s)", namefile);
     if (!fscanf(f, "%d", &pid))
-        errx(1, "Could not read pid from %s", namefile);
+        errx("Could not read pid from %s", namefile);
     fclose(f);
 
     // Make a pidfd, pidfd_open already makes it O_CLOEXEC
     int pidfd = syscall(SYS_pidfd_open, pid, 0);
     if (pidfd == -1)
-        err(1, "pidfd_open(%d)", pid);
+        err("pidfd_open(%d)", pid);
 
     // Join all the namespaces that the container possibly has
     unsigned uflags =
         CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWUTS;
     if (setns(pidfd, uflags) == -1)
-        err(1, "setns");
+        err("setns");
 
     close(pidfd);
 
@@ -693,5 +692,5 @@ void lexec(unsigned flags, char **argv, char **envp)
         putenv(envp[i]);
 
     execvp(argv[0], argv);
-    err(1, "execv");
+    err("execv");
 }

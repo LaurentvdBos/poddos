@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include <argp.h>
 #include <dirent.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>

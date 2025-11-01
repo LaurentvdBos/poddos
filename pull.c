@@ -33,11 +33,11 @@
 
 int pull(const char *full_url)
 {
-    char url[URL_MAX + 1], container[URL_MAX + 1], ref[URL_MAX + 1], url2[URL_MAX + 1];
+    char url[URL_MAX + 1], repository[URL_MAX + 1], ref[URL_MAX + 1], url2[URL_MAX + 1];
 
-    if (sscanf(full_url, "%1000[^/]/%1000[^:]:%1000s", url, container, ref) != 3)
+    if (sscanf(full_url, "%1000[^/]/%1000[^:]:%1000s", url, repository, ref) != 3)
         return -1;
-    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, container, ref);
+    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, ref);
 
     fprintf(stderr, "Retrieving available manifests...\n");
 
@@ -92,7 +92,7 @@ int pull(const char *full_url)
         return -1;
     fprintf(stderr, "Retrieving manifest (%s)...\n", digest2);
 
-    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, container, digest2);
+    snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, digest2);
     f = urlopen(url2, 0,
                 "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json");
     if (!f)
@@ -145,7 +145,7 @@ int pull(const char *full_url)
                 return -1;
 
             fprintf(stderr, "Pulling %s...\n", digest);
-            snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, container, digest);
+            snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
 
             f = urlopen(url2, 0, media_type);
             if (!f)
@@ -202,7 +202,7 @@ int pull(const char *full_url)
             return -1;
 
         char config[65536] = { 0 };
-        snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, container, digest);
+        snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
         f = urlopen(url2, 0,
                     "application/vnd.docker.container.image.v1+json, application/vnd.oci.image.config.v1+json");
         if (!f)
@@ -212,18 +212,18 @@ int pull(const char *full_url)
             errx(1, "Buffer too small.");
         fclose(f);
 
-        const char *name2 = name;
-        if (!name2) {
-            name2 = strrchr(container, '/');
-            if (!name2)
-                name2 = container;
+        const char *config_name = name;
+        if (!config_name) {
+            config_name = strrchr(repository, '/');
+            if (!config_name)
+                config_name = repository;
             else
-                name2 = name2 + 1;
+                config_name = config_name + 1;
         }
 
-        int fd = openat(layer_fd, name2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int fd = openat(layer_fd, config_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd == -1)
-            err(1, "open(%s)", name2);
+            err(1, "open(%s)", config_name);
         FILE *f = fdopen(fd, "w");
         fprintf(f, "[pull]\n--url=%s\n\n", full_url);
 
@@ -272,7 +272,7 @@ int pull(const char *full_url)
         fclose(f);
 
         printf("Pull was successful. Now use the following to start this container:\n");
-        printf("  poddos --name=%s start\n", name2);
+        printf("  poddos --name=%s start\n", config_name);
     }
 
     return 0;

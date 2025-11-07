@@ -43,7 +43,7 @@ int pull(const char *full_url)
     fprintf(stderr, "Retrieving available manifests...\n");
 
     FILE *f =
-        urlopen(url2, 0,
+        urlopen(url2, HTTP_ACCEPT,
                 "application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json");
     if (!f)
         return -1;
@@ -94,7 +94,7 @@ int pull(const char *full_url)
     ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, digest2);
     if (ret > URL_MAX)
         errx("URL too long");
-    f = urlopen(url2, 0,
+    f = urlopen(url2, HTTP_ACCEPT,
                 "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json");
     if (!f)
         return -1;
@@ -150,9 +150,9 @@ int pull(const char *full_url)
             if (ret > URL_MAX)
                 errx("URL too long");
 
-            f = urlopen(url2, 0, media_type);
+            f = urlopen(url2, HTTP_ACCEPT, media_type);
             if (!f)
-                return -1;
+                errx("Could not open URL");
 
             if (!strcmp(media_type, "application/vnd.docker.image.rootfs.diff.tar.gzip"))
                 f = finfl(f, INFL_AUTOCLOSE);
@@ -193,7 +193,7 @@ int pull(const char *full_url)
     if (wait(&wstatus) == -1)
         err("wait");
     if (!WIFEXITED(wstatus) || WEXITSTATUS(wstatus))
-        errx("Child crashed (exit status %d).", WEXITSTATUS(wstatus));
+        errx("Child crashed (exit status %d). You may want to run 'poddos prune --all' to remove in-progress pulls now.", WEXITSTATUS(wstatus));
 
     // When done, write the configuration, but only if this is a named container
     digest = jget(jget(json, "config"), "digest");
@@ -207,7 +207,7 @@ int pull(const char *full_url)
         int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
         if (ret > URL_MAX)
             errx("URL too long");
-        f = urlopen(url2, 0,
+        f = urlopen(url2, HTTP_ACCEPT,
                     "application/vnd.docker.container.image.v1+json, application/vnd.oci.image.config.v1+json");
         if (!f)
             err("Could not download configuration");
@@ -276,11 +276,14 @@ int pull(const char *full_url)
             fprintf(f, "%s\n", buf);
         }
 
+        free(config);
         fclose(f);
 
         printf("Pull was successful. Now use the following to start this container:\n");
         printf("  poddos --name=%s start\n", config_name);
     }
+
+    free(json);
 
     return 0;
 }

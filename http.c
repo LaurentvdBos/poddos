@@ -23,8 +23,6 @@
 
 static SSL_CTX *ssl_ctx = NULL;
 
-static char token[16384] = { 0 };
-
 static void ssl_destroy()
 {
     if (ssl_ctx) {
@@ -139,7 +137,7 @@ static ssize_t ssl_write(void *cookie, const char *buf, size_t size)
     }
 }
 
-FILE *urlopen(char *url, unsigned flags, const char *accept)
+FILE *urlopen(char *url, unsigned flags, ...)
 {
     bool is_https;
     char host[URL_MAX + 1], port[URL_MAX + 1], path[URL_MAX + 1];
@@ -231,17 +229,28 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
     } else
         f = fdopen(sock, "w+");
 
-    fprintf(f, "GET %s HTTP/1.1\r\nHost: %s:%s\r\nConnection: close\r\nAccept-Encoding: gzip, deflate, identity\r\n",
-            path, host, port);
-    if (accept)
-        fprintf(f, "Accept: %s\r\n", accept);
-    if (token[0])
-        fprintf(f, "Authorization: Bearer %s\r\n", token);
+    fprintf(f, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nAccept-Encoding: gzip, deflate, identity\r\n",
+            path, host);
+    va_list va;
+    va_start(va, flags);
+    char *accept = NULL;
+    char *token = NULL;
+    if (flags & HTTP_ACCEPT) {
+        accept = va_arg(va, char *);
+        if (accept)
+            fprintf(f, "Accept: %s\r\n", accept);
+    }
+    if (flags & HTTP_TOKEN) {
+        token = va_arg(va, char *);
+        if (token)
+            fprintf(f, "Authorization: Bearer %s\r\n", token);
+    }
+    va_end(va);
     fprintf(f, "\r\n");
 
     char buf[1024];
     if (!fgets(buf, 1024, f))
-        goto out;               // Server hung up too early
+        goto out; // Server hung up too early
 
     int code;
     char msg[1024];
@@ -261,7 +270,7 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
         if (sscanf(buf, "location: %1000s", header) && 300 <= code && code < 400 && !(flags & HTTP_IGNREDIR)) {
             fprintf(stderr, "HTTP %d: %s, location: %s\n", code, msg, header);
             fclose(f);
-            return urlopen(header, flags | HTTP_IGNREDIR, accept);
+            return urlopen(header, (flags | HTTP_IGNREDIR) & ~HTTP_TOKEN, accept);
         }
 
         if (sscanf(buf, "www-authenticate: Bearer %1000[^\r]", header) && 400 <= code && code < 500
@@ -290,7 +299,7 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
                 strcat(bearer_url, bearer_query);
             }
 
-            FILE *f_bearer = urlopen(bearer_url, flags | HTTP_IGNBEARER, "text/json");
+            FILE *f_bearer = urlopen(bearer_url, (flags | HTTP_IGNBEARER | HTTP_ACCEPT) & ~HTTP_TOKEN, "text/json");
             if (!f_bearer)
                 errx("Could not open %s", bearer_url);
 
@@ -301,9 +310,10 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
                 errx("Buffer too short");
             fclose(f_bearer);
 
-            jstr(jget(json, "token"), token, 16384);
+            char token[16384];
+            jstr(jget(json, "token"), token, 16383);
 
-            return urlopen(url, flags | HTTP_IGNBEARER, accept);
+            return urlopen(url, flags | HTTP_IGNBEARER | HTTP_ACCEPT | HTTP_TOKEN, accept, token);
         }
 
         if (sscanf(buf, "content-encoding: %1000s", header)) {
@@ -328,7 +338,7 @@ FILE *urlopen(char *url, unsigned flags, const char *accept)
             }
         }
 
-        sscanf(buf, "Content-Length: %lu", &length);
+        sscanf(buf, "content-length: %lu", &length);
     }
 
     if (code >= 400) {

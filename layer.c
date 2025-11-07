@@ -160,7 +160,6 @@ void forktochild()
         }
         // Create a mask containing all signals ...
         sigset_t mask;
-        sigemptyset(&mask);
         sigfillset(&mask);
 
         // ... block all signals ...

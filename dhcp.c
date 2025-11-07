@@ -170,7 +170,7 @@ uint16_t chksum(void *buf, int n)
     return ~ret;
 }
 
-int optlen(uint8_t * buf)
+int optlen(uint8_t *buf)
 {
     int n = 0;
     while (buf[n] != END) {
@@ -180,7 +180,7 @@ int optlen(uint8_t * buf)
     return n + 1;
 }
 
-uint8_t *optget(uint8_t * buf, enum dhcpopt which)
+uint8_t *optget(uint8_t *buf, enum dhcpopt which)
 {
     int n = 0;
     while (buf[n] != END) {

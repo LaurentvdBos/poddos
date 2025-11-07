@@ -254,9 +254,8 @@ int pull(const char *full_url)
         }
 
         char working_dir[PATH_MAX];
-        if (jstr(jget(jget(config, "config"), "WorkingDir"), working_dir, PATH_MAX) != -1) {
+        if (jstr(jget(jget(config, "config"), "WorkingDir"), working_dir, PATH_MAX) != -1 && strlen(working_dir) > 0)
             fprintf(f, "--directory=%s\n", working_dir);
-        }
 
         const char *entry_point;
         for (int i = 0; (entry_point = jindex(jget(jget(config, "config"), "Entrypoint"), i)); i++) {

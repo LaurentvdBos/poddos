@@ -19,6 +19,8 @@
 
 char *macvlan = "macvlan0";
 
+static int seq = 0;
+
 void bringloup()
 {
     struct ifreq req = {
@@ -31,24 +33,6 @@ void bringloup()
     if (ioctl(sock, SIOCSIFFLAGS, &req) == -1)
         err("ioctl(SIOCSIFFLAGS)");
     close(sock);
-}
-
-int sendnl(int fd, struct nlmsghdr *hdr)
-{
-    static int seq = 0;
-
-    struct iovec iov = { hdr, hdr->nlmsg_len };
-    struct sockaddr_nl sa;
-    struct msghdr msg = { &sa, sizeof(sa), &iov, 1, NULL, 0, 0 };
-
-    memset(&sa, 0, sizeof(sa));
-    sa.nl_family = AF_NETLINK;
-    sa.nl_groups = RTMGRP_LINK;
-    sa.nl_pid = 0;
-    hdr->nlmsg_pid = 0;
-    hdr->nlmsg_seq = seq++;
-
-    return sendmsg(fd, &msg, 0);
 }
 
 void ifremove(char *ifname)
@@ -77,6 +61,8 @@ void ifremove(char *ifname)
     req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
     req.hdr.nlmsg_flags = NLM_F_REQUEST;
     req.hdr.nlmsg_type = RTM_GETLINK;
+    req.hdr.nlmsg_pid = 0;
+    req.hdr.nlmsg_seq = seq++;
 
     req.ifinfo.ifi_family = AF_UNSPEC;
     req.ifinfo.ifi_index = 0;
@@ -91,8 +77,8 @@ void ifremove(char *ifname)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
 
-    if (sendnl(netfd, &req.hdr) == -1)
-        err("sendnl");
+    if (write(netfd, &req, req.hdr.nlmsg_len) == -1)
+        err("write");
 
     if ((n = read(netfd, buf, 4096)) == -1)
         err("read(netfd)");
@@ -120,6 +106,8 @@ void ifremove(char *ifname)
     req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
     req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
     req.hdr.nlmsg_type = RTM_DELLINK;
+    req.hdr.nlmsg_pid = 0;
+    req.hdr.nlmsg_seq = seq++;
 
     req.ifinfo.ifi_family = AF_UNSPEC;
     req.ifinfo.ifi_index = ifindex;
@@ -128,8 +116,8 @@ void ifremove(char *ifname)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len);
 
-    if (sendnl(netfd, &req.hdr) == -1)
-        err("sendnl");
+    if (write(netfd, &req, req.hdr.nlmsg_len) == -1)
+        err("write");
 
     // Wait for acknowledgement or error, whichever comes first
     int ack = 0;
@@ -180,6 +168,8 @@ void makemacvlan(pid_t pid)
     req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
     req.hdr.nlmsg_flags = NLM_F_REQUEST;
     req.hdr.nlmsg_type = RTM_GETLINK;
+    req.hdr.nlmsg_pid = 0;
+    req.hdr.nlmsg_seq = seq++;
 
     req.ifinfo.ifi_family = AF_UNSPEC;
     req.ifinfo.ifi_index = 0;
@@ -194,8 +184,8 @@ void makemacvlan(pid_t pid)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
 
-    if (sendnl(netfd, &req.hdr) == -1)
-        err("sendnl");
+    if (write(netfd, &req, req.hdr.nlmsg_len) == -1)
+        err("write");
 
     if ((n = read(netfd, buf, 4096)) == -1)
         err("read(netfd)");
@@ -222,6 +212,8 @@ void makemacvlan(pid_t pid)
     req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifinfo));
     req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE;
     req.hdr.nlmsg_type = RTM_NEWLINK;
+    req.hdr.nlmsg_pid = 0;
+    req.hdr.nlmsg_seq = seq++;
 
     req.ifinfo.ifi_family = AF_UNSPEC;
     req.ifinfo.ifi_index = 0;
@@ -274,8 +266,8 @@ void makemacvlan(pid_t pid)
 
     req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + (512 - n);
 
-    if (sendnl(netfd, &req.hdr) == -1)
-        err("sendnl");
+    if (write(netfd, &req, req.hdr.nlmsg_len) == -1)
+        err("write");
 
     // Wait for acknowledgement or error, whichever comes first
     int ack = 0;

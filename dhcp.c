@@ -7,6 +7,7 @@
 #include <netinet/udp.h>
 #include <netpacket/packet.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,6 +193,18 @@ uint8_t *optget(uint8_t *buf, enum dhcpopt which)
     return NULL;
 }
 
+bool dhcpvalid(int n, uint8_t *buf)
+{
+    int i = sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct dhcphdr);
+
+    while (i + 1 < n && buf[i] != END) {
+        uint8_t len = buf[i + 1];
+        i += len + 2;
+    }
+
+    return i < n && buf[i] == END;
+}
+
 void addopt(uint8_t * buf, enum dhcpopt which, ...)
 {
     // Search for END and put the new op in there
@@ -313,14 +326,13 @@ void dhcpsend(int sock)
 int dhcpstep(char *ifname, int sock)
 {
     int n;
-    char buf[65535];
+    uint8_t buf[65535];
 
     if ((n = recv(sock, buf, 65535, 0)) == -1)
         die("recv");
 
-    const size_t minsize = sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct dhcphdr) + 1;
-    if (n < minsize)
-        return sock; // Package is too small to be a DHCP package
+    if (!dhcpvalid(n, buf))
+        return sock; // Package is for whatever reason not a valid DHCP package
 
     struct iphdr *iphdr = (struct iphdr *) buf;
     struct udphdr *udphdr = (struct udphdr *) (iphdr + 1);
@@ -331,11 +343,12 @@ int dhcpstep(char *ifname, int sock)
         ntohl(dhcphdr->xid) == xid && // ... our xid ...
         !memcmp(dhcphdr->chaddr, mac, ETHER_ADDR_LEN) && // ... our MAC address ...
         dhcphdr->op == 0x02) { // ... and a response? ...
-        // ... then it is a DHCP package (probably)
+        // ... then it is a DHCP package for us
 
-        uint8_t *msgtype = optget((uint8_t *) (dhcphdr + 1), DHCP_MESSAGE_TYPE);
+        uint8_t *options = (uint8_t *) (dhcphdr + 1);
+        uint8_t *msgtype = optget(options, DHCP_MESSAGE_TYPE);
         if (!msgtype)
-            return sock; // Ignore malformed DHCP package
+            return sock; // Ignore DHCP package without message type
 
         if (*msgtype == OFFER) {
             yiaddr = dhcphdr->yiaddr;
@@ -346,7 +359,6 @@ int dhcpstep(char *ifname, int sock)
             // Initialize the link
             struct ifreq req;
             strncpy(req.ifr_name, ifname, IFNAMSIZ);
-            uint8_t *options = (uint8_t *) (dhcphdr + 1);
             struct sockaddr_in *sai = (struct sockaddr_in *) &req.ifr_addr;
             sai->sin_family = AF_INET;
             sai->sin_port = 0;
@@ -357,52 +369,64 @@ int dhcpstep(char *ifname, int sock)
                 die("ioctl(SIOCSIFADDR)");
 
             // Set netmask
-            memcpy(&sai->sin_addr, optget(options, SUBNET_MASK), 4);
-            if (ioctl(sock, SIOCSIFNETMASK, &req) == -1)
-                die("ioctl(SIOCIFNETMASK)");
+            uint8_t *mask = optget(options, SUBNET_MASK);
+            if (mask) {
+                memcpy(&sai->sin_addr, mask, *(mask - 1));
+                if (ioctl(sock, SIOCSIFNETMASK, &req) == -1)
+                    die("ioctl(SIOCIFNETMASK)");
+            }
 
             // Set broadcast address
-            memcpy(&sai->sin_addr, optget(options, BROADCAST), 4);
-            if (ioctl(sock, SIOCSIFBRDADDR, &req) == -1)
-                die("ioctl(SIOCSIFBRDADDR)");
+            uint8_t *brdcast = optget(options, BROADCAST);
+            if (brdcast) {
+                memcpy(&sai->sin_addr, brdcast, *(brdcast - 1));
+                if (ioctl(sock, SIOCSIFBRDADDR, &req) == -1)
+                    die("ioctl(SIOCSIFBRDADDR)");
+            }
 
             // Set a default routing entry (the "gateway")
-            struct rtentry route = { 0 };
-            sai = (struct sockaddr_in *) &route.rt_gateway;
-            sai->sin_family = AF_INET;
-            memcpy(&sai->sin_addr, optget(options, ROUTER), 4);
-            sai = (struct sockaddr_in *) &route.rt_dst;
-            sai->sin_family = AF_INET;
-            sai->sin_addr.s_addr = INADDR_ANY;
-            sai = (struct sockaddr_in *) &route.rt_genmask;
-            sai->sin_family = AF_INET;
-            sai->sin_addr.s_addr = INADDR_ANY;
+            uint8_t *router = optget(options, ROUTER);
+            if (router) {
+                struct rtentry route = { 0 };
+                sai = (struct sockaddr_in *) &route.rt_gateway;
+                sai->sin_family = AF_INET;
+                memcpy(&sai->sin_addr, router, *(router - 1));
+                sai = (struct sockaddr_in *) &route.rt_dst;
+                sai->sin_family = AF_INET;
+                sai->sin_addr.s_addr = INADDR_ANY;
+                sai = (struct sockaddr_in *) &route.rt_genmask;
+                sai->sin_family = AF_INET;
+                sai->sin_addr.s_addr = INADDR_ANY;
 
-            route.rt_flags = RTF_UP | RTF_GATEWAY;
-            route.rt_metric = 0;
-            route.rt_dev = ifname;
+                route.rt_flags = RTF_UP | RTF_GATEWAY;
+                route.rt_metric = 0;
+                route.rt_dev = ifname;
 
-            ioctl(sock, SIOCDELRT, &route); // Errors are ignored
-            if (ioctl(sock, SIOCADDRT, &route) == -1)
-                die("ioctl(SIOCADDRT)");
+                ioctl(sock, SIOCDELRT, &route); // Errors are ignored
+                if (ioctl(sock, SIOCADDRT, &route) == -1)
+                    die("ioctl(SIOCADDRT)");
+            }
 
             // Create a /etc/resolv.conf
             FILE *f = fopen("/etc/resolv.conf", "w");
-            uint8_t *dns = optget(options, DOMAIN_NAME_SERVER);
-            uint8_t *len = dns - 1;
-            if (!dnsserver) {
-                for (int i = 0; i < *len; i += 4) {
-                    struct in_addr addr;
-                    memcpy(&addr, dns + i, 4);
-                    fprintf(f, "nameserver %s\n", inet_ntoa(addr));
-                }
-            } else {
+
+            if (dnsserver) {
                 fprintf(f, "nameserver %s\n", dnsserver);
+            } else {
+                uint8_t *dns = optget(options, DOMAIN_NAME_SERVER);
+                if (dns) {
+                    uint8_t *len = dns - 1;
+                    for (int i = 0; i + 3 < *len; i += 4) {
+                        struct in_addr addr;
+                        memcpy(&addr, dns + i, 4);
+                        fprintf(f, "nameserver %s\n", inet_ntoa(addr));
+                    }
+                }
             }
 
             uint8_t *domain = optget(options, DOMAIN_NAME);
-            len = domain - 1;
             if (domain) {
+                uint8_t *len = domain - 1;
                 fprintf(f, "search %.*s\n", *len, domain);
             }
 
@@ -410,8 +434,10 @@ int dhcpstep(char *ifname, int sock)
             close(sock);
 
             // Return when dhcp should be restarted (when the lease time is 90%)
+            int lease_time = 0xFFFF;
             uint8_t *lease = optget(options, IP_ADDRESS_LEASE_TIME);
-            int lease_time = (int) ntohl(*(uint32_t *) lease);
+            if (lease && *(lease - 1) == sizeof(uint32_t))
+                lease_time = (int) ntohl(*(uint32_t *) lease);
             sock = -lease_time / 10 * 9;
         } else {
             // In case of any other message (e.g., NACK) we go back to start

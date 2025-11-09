@@ -50,62 +50,62 @@ void tarwrite(struct tarfile file, FILE * f, int dir_fd)
     case '7':
         int fd = openat(dir_fd, file.path, O_CREAT | O_WRONLY | O_TRUNC, file.mode);
         if (fd == -1)
-            err("open(%s)", file.path);
+            die("open(%s)", file.path);
 
         char buf[512];
         int n;
         while ((n = fread(buf, 1, 512, f)) > 0) {
             if (write(fd, buf, n) == -1)
-                err("write(%s)", file.path);
+                die("write(%s)", file.path);
         }
         if (n == -1)
-            err("fread");
+            die("fread");
 
         if (fchown(fd, file.uid, file.gid) == -1)
-            err("fchown(%s, %d, %d)", file.path, file.uid, file.gid);
+            die("fchown(%s, %d, %d)", file.path, file.uid, file.gid);
         if (fchmod(fd, file.mode))
-            err("fchmod(%s, 0%03o)", file.path, file.mode);
+            die("fchmod(%s, 0%03o)", file.path, file.mode);
 
         const struct timeval tvp[] = { file.mtime, file.atime };
         if (futimes(fd, tvp))
-            err("futimes(%s)", file.path);
+            die("futimes(%s)", file.path);
 
         close(fd);
         break;
 
     case '1':
         if (linkat(dir_fd, file.linkpath, dir_fd, file.path, 0) == -1)
-            err("linkat(%s, %s)", file.linkpath, file.path);
+            die("linkat(%s, %s)", file.linkpath, file.path);
         break;
 
     case '2':
         if (symlinkat(file.linkpath, dir_fd, file.path) == -1)
-            err("symlinkat(%s, %s)", file.linkpath, file.path);
+            die("symlinkat(%s, %s)", file.linkpath, file.path);
         break;
 
     case '3':
         if (mknodat(dir_fd, file.path, file.mode, makedev(file.major, file.minor) | S_IFCHR) == -1)
-            err("mknodat(%s)", file.path);
+            die("mknodat(%s)", file.path);
         if (fchmodat(dir_fd, file.path, file.mode, 0) == -1)
-            err("chmod(%s)", file.path);
+            die("chmod(%s)", file.path);
         break;
 
     case '4':
         if (mknodat(dir_fd, file.path, file.mode, makedev(file.major, file.minor) | S_IFBLK) == -1)
-            err("mknodat(%s)", file.path);
+            die("mknodat(%s)", file.path);
         if (fchmodat(dir_fd, file.path, file.mode, 0) == -1)
-            err("chmod(%s)", file.path);
+            die("chmod(%s)", file.path);
         break;
 
     case '5':
         if (mkdirat(dir_fd, file.path, 0777) == -1 && errno != EEXIST)
-            err("mkdir(%s)", file.path);
+            die("mkdir(%s)", file.path);
         if (fchmodat(dir_fd, file.path, file.mode, 0) == -1)
-            err("fchmod(%s, 0%03o)", file.path, file.mode);
+            die("fchmod(%s, 0%03o)", file.path, file.mode);
         break;
 
     default:
-        errx("Unrecognized type: %c\n", file.type);
+        diex("Unrecognized type: %c\n", file.type);
     }
 }
 
@@ -129,7 +129,7 @@ unsigned unpax(FILE * f, struct tarfile *file)
         }
 
         if (len > PAX_MAX)
-            errx("Pax header too long: %d", len);
+            diex("Pax header too long: %d", len);
 
         // Read the rest
         char key[PAX_MAX];

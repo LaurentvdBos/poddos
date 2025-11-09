@@ -116,7 +116,7 @@ static ssize_t ssl_read(void *cookie, char *buf, size_t size)
     case SSL_ERROR_ZERO_RETURN:
         return 0;
     case SSL_ERROR_SYSCALL:
-        err("ssl_read");
+        die("ssl_read");
     default:
         return -1;
     }
@@ -131,7 +131,7 @@ static ssize_t ssl_write(void *cookie, const char *buf, size_t size)
     case SSL_ERROR_NONE:
         return ret;
     case SSL_ERROR_SYSCALL:
-        err("ssl_write");
+        die("ssl_write");
     default:
         return 0;
     }
@@ -301,13 +301,13 @@ FILE *urlopen(char *url, unsigned flags, ...)
 
             FILE *f_bearer = urlopen(bearer_url, (flags | HTTP_IGNBEARER | HTTP_ACCEPT) & ~HTTP_TOKEN, "text/json");
             if (!f_bearer)
-                errx("Could not open %s", bearer_url);
+                diex("Could not open %s", bearer_url);
 
             char json[16384];
             if (!fread(json, 1, 16384, f_bearer))
-                errx("Could not read from %s", bearer_url);
+                diex("Could not read from %s", bearer_url);
             if (!feof(f_bearer))
-                errx("Buffer too short");
+                diex("Buffer too short");
             fclose(f_bearer);
 
             char token[16384];

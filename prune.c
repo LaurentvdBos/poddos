@@ -74,7 +74,7 @@ int prune(const char *layer)
 {
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) == -1)
-        err("pipe");
+        die("pipe");
 
     struct clone_args cl_args = { 0 };
     cl_args.flags = CLONE_NEWUSER;
@@ -86,24 +86,24 @@ int prune(const char *layer)
 
     pid_t pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
     if (pid == -1)
-        err("clone3");
+        die("clone3");
     if (pid == 0) {
         // Child, wait for the parent to setup the uid / gid map
         close(pipefd[1]);
         char buf;
         if (read(pipefd[0], &buf, 1) == -1)
-            err("read(pipefd)");
+            die("read(pipefd)");
         close(pipefd[0]);
 
         int dirfd = openat(layer_fd, layer, O_DIRECTORY);
         if (dirfd == -1)
-            err("could not open %s", layer);
+            die("could not open %s", layer);
         int n = emptydir(dirfd);
         if (n == -1)
-            err("could not empty %s", layer);
+            die("could not empty %s", layer);
         close(dirfd);
         if (unlinkat(layer_fd, layer, AT_REMOVEDIR) == -1)
-            err("could not remove %s", layer);
+            die("could not remove %s", layer);
 
         printf("Removed %s (%d files).\n", layer, n);
 
@@ -115,9 +115,9 @@ int prune(const char *layer)
 
     int wstatus;
     if (wait(&wstatus) == -1)
-        err("wait");
+        die("wait");
     if (!WIFEXITED(wstatus) || WEXITSTATUS(wstatus))
-        errx("Child crashed (exit status %d).", WEXITSTATUS(wstatus));
+        diex("Child crashed (exit status %d).", WEXITSTATUS(wstatus));
     return 0;
 }
 
@@ -125,10 +125,10 @@ void pruneall(bool force)
 {
     int dirfd = dup(layer_fd);
     if (dirfd == -1)
-        err("dup(layer_fd)");
+        die("dup(layer_fd)");
     DIR *dir = fdopendir(dirfd);
     if (!dir)
-        err("fdopendir(dirfd)");
+        die("fdopendir(dirfd)");
 
     struct dirent *entry;
     char layer[PATH_MAX] = { 0 };
@@ -153,7 +153,7 @@ void pruneall(bool force)
 
                 int fd = openat(layer_fd, file->d_name, O_RDONLY);
                 if (fd == -1)
-                    err("could not open %s", file->d_name);
+                    die("could not open %s", file->d_name);
 
                 FILE *f = fdopen(fd, "r");
                 char buf[4097];

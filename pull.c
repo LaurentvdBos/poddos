@@ -38,7 +38,7 @@ int pull(const char *full_url)
         return -1;
     int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, ref);
     if (ret > URL_MAX)
-        errx("URL too long");
+        diex("URL too long");
 
     fprintf(stderr, "Retrieving available manifests...\n");
 
@@ -52,7 +52,7 @@ int pull(const char *full_url)
     size_t n = 0;
     ssize_t m = getdelim(&json, &n, 0, f);
     if (m < 0)
-        err("Could not read list of manifests");
+        die("Could not read list of manifests");
     fclose(f);
 
     const char *manifests = jget(json, "manifests");
@@ -93,14 +93,14 @@ int pull(const char *full_url)
 
     ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, digest2);
     if (ret > URL_MAX)
-        errx("URL too long");
+        diex("URL too long");
     f = urlopen(url2, HTTP_ACCEPT,
                 "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json");
     if (!f)
         return -1;
     m = getdelim(&json, &n, 0, f);
     if (m < 0)
-        err("Could not read list of manifests");
+        die("Could not read list of manifests");
     fclose(f);
 
     const char *layers = jget(json, "layers");
@@ -108,20 +108,20 @@ int pull(const char *full_url)
 
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) == -1)
-        err("pipe");
+        die("pipe");
 
     struct clone_args cl_args = { 0 };
     cl_args.flags = CLONE_NEWUSER;
     cl_args.exit_signal = SIGCHLD;
     pid_t pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
     if (pid == -1)
-        err("clone3");
+        die("clone3");
     if (pid == 0) {
         // Child, wait for the parent to setup the uid / gid map
         close(pipefd[1]);
         char buf;
         if (read(pipefd[0], &buf, 1) == -1)
-            err("read(pipefd)");
+            die("read(pipefd)");
         close(pipefd[0]);
 
         for (int i = 0; (layer = jindex(layers, i)); i++) {
@@ -131,14 +131,14 @@ int pull(const char *full_url)
 
             char *dir = strrchr(digest, ':');
             if (!dir)
-                errx("Invalid digest: %s", digest);
+                diex("Invalid digest: %s", digest);
 
             if (mkdirat(layer_fd, dir + 1, 0777) == -1) {
                 if (errno == EEXIST) {
                     fprintf(stderr, "Skipping %s...\n", digest);
                     continue;
                 } else
-                    err("mkdir(%s)", dir + 1);
+                    die("mkdir(%s)", dir + 1);
             }
 
             char media_type[100];
@@ -148,11 +148,11 @@ int pull(const char *full_url)
             fprintf(stderr, "Pulling %s...\n", digest);
             int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
             if (ret > URL_MAX)
-                errx("URL too long");
+                diex("URL too long");
 
             f = urlopen(url2, HTTP_ACCEPT, media_type);
             if (!f)
-                errx("Could not open URL");
+                diex("Could not open URL");
 
             if (!strcmp(media_type, "application/vnd.docker.image.rootfs.diff.tar.gzip"))
                 f = finfl(f, INFL_AUTOCLOSE);
@@ -166,7 +166,7 @@ int pull(const char *full_url)
                 fprintf(stderr, "%s...\n", file.path);
                 if (!strncmp(basename(file.path), ".wh.", 4)) {
                     if (!strcmp(basename(file.path), ".wh..wh..opq"))
-                        err("Opaque whiteouts are not implemented");
+                        die("Opaque whiteouts are not implemented");
 
                     // Make the path that should be removed
                     char path[PATH_MAX];
@@ -174,7 +174,7 @@ int pull(const char *full_url)
                     strcpy(strrchr(path, '/') + 1, strrchr(path, '/') + 5);
 
                     if (mknodat(dir_fd, path, 0777, makedev(0, 0)) == -1)
-                        err("mknod(%s, 0777, (0, 0))", path);
+                        die("mknod(%s, 0777, (0, 0))", path);
                 } else
                     tarwrite(file, data, dir_fd);
                 fclose(data);
@@ -191,9 +191,9 @@ int pull(const char *full_url)
 
     int wstatus;
     if (wait(&wstatus) == -1)
-        err("wait");
+        die("wait");
     if (!WIFEXITED(wstatus) || WEXITSTATUS(wstatus))
-        errx("Child crashed (exit status %d). You may want to run 'poddos prune --all' to remove in-progress pulls now.", WEXITSTATUS(wstatus));
+        diex("Child crashed (exit status %d). You may want to run 'poddos prune --all' to remove in-progress pulls now.", WEXITSTATUS(wstatus));
 
     // When done, write the configuration, but only if this is a named container
     digest = jget(jget(json, "config"), "digest");
@@ -206,17 +206,17 @@ int pull(const char *full_url)
 
         int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/blobs/%s", url, repository, digest);
         if (ret > URL_MAX)
-            errx("URL too long");
+            diex("URL too long");
         f = urlopen(url2, HTTP_ACCEPT,
                     "application/vnd.docker.container.image.v1+json, application/vnd.oci.image.config.v1+json");
         if (!f)
-            err("Could not download configuration");
+            die("Could not download configuration");
         
         char *config = NULL;
         size_t n = 0;
         ssize_t m = getdelim(&config, &n, 0, f);
         if (m < 0)
-            err("Could not read configuration");
+            die("Could not read configuration");
         fclose(f);
 
         const char *config_name = name;
@@ -230,7 +230,7 @@ int pull(const char *full_url)
 
         int fd = openat(layer_fd, config_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd == -1)
-            err("open(%s)", config_name);
+            die("open(%s)", config_name);
         FILE *f = fdopen(fd, "w");
         fprintf(f, "[pull]\n--url=%s\n\n", full_url);
 
@@ -239,7 +239,7 @@ int pull(const char *full_url)
         for (int i = 0; (layer = jindex(layers, i)); i++) {
             char digest[1000];
             if (jstr(jget(layer, "digest"), digest, 1000) == -1)
-                errx("Could not parse layers %s", layer);
+                diex("Could not parse layers %s", layer);
 
             fprintf(f, "--overlay=%s\n", strrchr(digest, ':') + 1);
         }
@@ -248,7 +248,7 @@ int pull(const char *full_url)
         for (int i = 0; (envir = jindex(jget(jget(config, "config"), "Env"), i)); i++) {
             char buf[1000];
             if (jstr(envir, buf, 1000) == -1)
-                errx("Could not parse environmental variables");
+                diex("Could not parse environmental variables");
 
             fprintf(f, "--env=%s\n", buf);
         }
@@ -261,7 +261,7 @@ int pull(const char *full_url)
         for (int i = 0; (entry_point = jindex(jget(jget(config, "config"), "Entrypoint"), i)); i++) {
             char buf[1000];
             if (jstr(entry_point, buf, 1000) == -1)
-                errx("Could not parse entry point");
+                diex("Could not parse entry point");
 
             fprintf(f, "%s\n", buf);
         }
@@ -270,7 +270,7 @@ int pull(const char *full_url)
         for (int i = 0; (cmd = jindex(jget(jget(config, "config"), "Cmd"), i)); i++) {
             char buf[1000];
             if (jstr(cmd, buf, 1000) == -1)
-                errx("Could not parse command line");
+                diex("Could not parse command line");
 
             fprintf(f, "%s\n", buf);
         }

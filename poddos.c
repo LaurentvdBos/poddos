@@ -229,17 +229,16 @@ int loadconfig(char ***argv, char *action, char *override)
     FILE *f = fdopen(fd, "r");
 
     bool parsing = false;
-    char buf[4096];
-    while (!feof(f) && !ferror(f)) {
-        if (!fgets(buf, 4096, f))
-            break;
-
+    char *buf = NULL;
+    size_t n = 0;
+    while (getline(&buf, &n, f) > 0) {
         // Ignore empty lines and comments
         if (buf[0] == '\n' || buf[0] == '#')
             continue;
 
-        // Strip off the final \n
-        buf[strlen(buf) - 1] = 0;
+        // Strip off the final \n, assuming there is one
+        if (buf[strlen(buf) - 1] == '\n')
+            buf[strlen(buf) - 1] = 0;
 
         char header[21] = { 0 };
         if (sscanf(buf, "[%20[abcdefghijklmnopqrstuvwxyz]]", header))
@@ -254,6 +253,7 @@ int loadconfig(char ***argv, char *action, char *override)
             strcpy((*argv)[argc - 1], buf);
         }
     }
+    free(buf);
 
     fclose(f);
 

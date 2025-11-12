@@ -80,10 +80,6 @@ int prune(const char *layer)
     cl_args.flags = CLONE_NEWUSER;
     cl_args.exit_signal = SIGCHLD;
 
-    // Explicitly flush the streams such that we can do printf in the child
-    // (otherwise buffering may give double output).
-    fflush(NULL);
-
     pid_t pid = syscall(SYS_clone3, &cl_args, sizeof(struct clone_args));
     if (pid == -1)
         die("clone3");
@@ -105,9 +101,9 @@ int prune(const char *layer)
         if (unlinkat(layer_fd, layer, AT_REMOVEDIR) == -1)
             die("could not remove %s", layer);
 
-        printf("Removed %s (%d files).\n", layer, n);
+        dprintf(STDOUT_FILENO, "Removed %s (%d files).\n", layer, n);
 
-        exit(0);
+        quick_exit(0);
     }
     makeugmap(pid);
     close(pipefd[0]);

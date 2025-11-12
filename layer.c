@@ -173,15 +173,15 @@ void forktochild()
 
         const nfds_t nfds = 9;
         struct pollfd pfds[] = {
-            {.fd = infd,.events = 0 },
-            {.fd = outfd,.events = 0 },
-            {.fd = errfd,.events = 0 },
-            {.fd = STDIN_FILENO,.events = 0 },
-            {.fd = STDOUT_FILENO,.events = 0 },
-            {.fd = STDERR_FILENO,.events = 0 },
-            {.fd = -1,.events = POLLIN },
-            {.fd = sfd,.events = POLLIN },
-            {.fd = timefd,.events = POLLIN },
+            { .fd = infd, .events = 0 },
+            { .fd = outfd, .events = 0 },
+            { .fd = errfd, .events = 0 },
+            { .fd = STDIN_FILENO, .events = 0 },
+            { .fd = STDOUT_FILENO, .events = 0 },
+            { .fd = STDERR_FILENO, .events = 0 },
+            { .fd = -1, .events = POLLIN },
+            { .fd = sfd, .events = POLLIN },
+            { .fd = timefd, .events = POLLIN },
         };
 
         char bufin[1024], bufout[1024], buferr[1024];
@@ -271,7 +271,7 @@ void forktochild()
                 if (pfds[6].fd < 0) {
                     // A negative value indicates that DHCP is done and we need to set a timeout
                     struct itimerspec val = {
-                        .it_value = {.tv_sec = -pfds[6].fd,.tv_nsec = 0 },
+                        .it_value = { .tv_sec = -pfds[6].fd, .tv_nsec = 0 },
                         .it_interval = { 0 }
                     };
                     if (timerfd_settime(timefd, 0, &val, NULL) == -1)
@@ -502,9 +502,8 @@ void lstart(unsigned flags, char **argv, char **envp)
         if (!f2)
             die("fopen(%s)", path);
         int c;
-        while ((c = fgetc(f1)) != EOF) {
+        while ((c = fgetc(f1)) != EOF)
             fputc(c, f2);
-        }
         fclose(f1);
         fclose(f2);
 

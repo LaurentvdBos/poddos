@@ -37,7 +37,8 @@ static int truncclose(void *cookie)
     struct ftrunc *t = (struct ftrunc *) cookie;
     if (t->flags & TRUNC_DRAIN)
         while (t->n--)
-            (void) fgetc(t->f);
+            if (fgetc(t->f) == EOF)
+                break;
     if (t->flags & TRUNC_AUTOCLOSE)
         ret = fclose(t->f) ? -1 : 0;
     free(t);

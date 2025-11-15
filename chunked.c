@@ -57,7 +57,7 @@ static int chunkclose(void *cookie)
 /**
  * Read HTTP chunked data from a file pointer. Such data comes in chunks, where
  * each chunk consists of an ASCII number, indicating the size of the chunk in
- * bytes, followed by a \r\n.
+ * bytes, followed by a \r\n. The size is written in hexadecimal.
  */
 FILE *fchunk(FILE * f, unsigned flags)
 {

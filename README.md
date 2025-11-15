@@ -28,24 +28,6 @@ and run it:
 poddos --name ubuntu start
 ```
 
-Open items
-----------
-- DHCP should try release its IP when `poddos` exits.
-- The `FILE` stream helpers should not cache.
-- A man page should be added.
-- Instead of `strncpy`, `strlcpy` (or a safer alternative) should be used.
-- There is no tooling to deal with layers, i.e., create and remove layers.
-- When pulling, the existing configuration is overwritten.
-- There are various statically allocated buffers in use, which should become
-  dynamically allocated.
-- The http client should simply call `err(...)` when an error occurs.
-- The DHCP client does not validate properly the length of its payload, so
-  malformed DHCP messages may lead to a buffer overflow.
-- The client cannot connect to any of the containers if they use a network
-  namespace.
-- Working directory is not properly parsed when pulling.
-- Read-only bind mounts need to be implemented
-
 Security
 --------
 Keep in mind that `poddos` does not make any attempt to secure processes in your

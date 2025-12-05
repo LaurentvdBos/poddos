@@ -12,11 +12,11 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
-#include <sys/signalfd.h>
-#include <sys/timerfd.h>
+#include <syslog.h>
 #include <termios.h>
 #include <utmp.h>
 
@@ -25,7 +25,7 @@
 #include "net.h"
 #include "dhcp.h"
 
-int namefd = -1, timefd = -1;
+int namefd = -1, dhcpfd = -1;
 
 void makeugmap(pid_t pid)
 {
@@ -171,7 +171,7 @@ void forktochild()
         if (sfd == -1)
             die("signalfd");
 
-        const nfds_t nfds = 9;
+        const nfds_t nfds = 8;
         struct pollfd pfds[] = {
             { .fd = infd, .events = 0 },
             { .fd = outfd, .events = 0 },
@@ -179,9 +179,8 @@ void forktochild()
             { .fd = STDIN_FILENO, .events = 0 },
             { .fd = STDOUT_FILENO, .events = 0 },
             { .fd = STDERR_FILENO, .events = 0 },
-            { .fd = -1, .events = POLLIN },
+            { .fd = dhcpfd, .events = POLLIN },
             { .fd = sfd, .events = POLLIN },
-            { .fd = timefd, .events = POLLIN },
         };
 
         char bufin[1024], bufout[1024], buferr[1024];
@@ -265,18 +264,8 @@ void forktochild()
                 close(STDERR_FILENO);
             }
             if (pfds[6].revents & POLLIN) {
-                // The socket used for DHCP got data
+                // DHCP can proceed
                 pfds[6].fd = dhcpstep(macvlan, pfds[6].fd);
-
-                if (pfds[6].fd < 0) {
-                    // A negative value indicates that DHCP is done and we need to set a timeout
-                    struct itimerspec val = {
-                        .it_value = { .tv_sec = -pfds[6].fd, .tv_nsec = 0 },
-                        .it_interval = { 0 }
-                    };
-                    if (timerfd_settime(timefd, 0, &val, NULL) == -1)
-                        die("timerfd_settime");
-                }
             }
             if (pfds[7].revents & POLLIN) {
                 // We received a signal
@@ -284,6 +273,8 @@ void forktochild()
                 int n = read(sfd, &fdsi, sizeof(fdsi));
                 if (n != sizeof(fdsi))
                     die("read(sfd)");
+
+                syslog(LOG_INFO, "loop: signal SIG%s", sigabbrev_np(fdsi.ssi_signo));
 
                 if (fdsi.ssi_signo == SIGWINCH && istty) {
                     // SIGWINCH should not be blindly forwarded, but handled via an ioctl
@@ -300,24 +291,12 @@ void forktochild()
                     kill(pid, fdsi.ssi_signo);
                 }
             }
-            if (pfds[8].revents & POLLIN) {
-                // Timer expiration indicates that we should renew the DHCP
-                if (pfds[6].fd > 0)
-                    close(pfds[6].fd);
-                pfds[6].fd = dhcpstart(macvlan);
-
-                // Set a timer to retry DHCP after 30 seconds
-                struct itimerspec val = {
-                    .it_value = {.tv_sec = 30,.tv_nsec = 0 },
-                    .it_interval = { 0 }
-                };
-                if (timerfd_settime(timefd, 0, &val, NULL) == -1)
-                    die("timerfd_settime");
-            }
         }
 
+        close(dhcpfd);
         close(sfd);
-        close(timefd);
+
+        syslog(LOG_INFO, "loop: closed, awaiting child");
 
         int wstatus;
         if (wait(&wstatus) == -1)
@@ -326,7 +305,7 @@ void forktochild()
         // Remove the macvlan, init is going to leave the namespace and
         // in some cases the kernel does not properly clean up the
         // network namespace.
-        if (timefd > 0)
+        if (dhcpfd > 0)
             ifremove(macvlan);
 
         if (istty)
@@ -598,27 +577,20 @@ void lstart(unsigned flags, char **argv, char **envp)
     if (mount("/old_root/dev/net/tun", "/dev/net/tun", "ignored", MS_BIND, NULL) == -1)
         die("mount(/dev/net/tun)");
 
-    // Make a timer file descriptor before forking
-    if ((flags & LAYER_NET) && (timefd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC | TFD_NONBLOCK)) == -1)
-        die("timefd_create");
+    // Initialize DHCP
+    if (flags & LAYER_NET) {
+        dhcpfd = dhcpstart(macvlan);
+        while (!dhcpconfigured)
+            dhcpfd = dhcpstep(macvlan, dhcpfd);
+    }
 
     // Fork to get pid 1, this will also get us a pty if needed
     forktochild();
 
-    // Initialize DHCP
-    if (flags & LAYER_NET) {
-        int sock = dhcpstart(macvlan);
-        while (sock > 0)
-            sock = dhcpstep(macvlan, sock);
-        struct itimerspec val = {
-            .it_value = {.tv_sec = -sock,.tv_nsec = 0 },
-            .it_interval = { 0 }
-        };
-        if (timerfd_settime(timefd, 0, &val, NULL) == -1)
-            die("timerfd_settime");
+    // No need for DHCP handling in child
+    if (flags & LAYER_NET)
+        close(dhcpfd);
 
-        close(timefd);
-    }
     // Mount /proc (now that we are pid 1)
     if (mount("none", "/proc", "proc", MS_NODEV | MS_NOSUID | MS_NOEXEC, NULL) == -1)
         die("mount(/proc)");

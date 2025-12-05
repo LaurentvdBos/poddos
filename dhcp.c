@@ -15,6 +15,8 @@
 #include <sys/ioctl.h>
 #include <sys/random.h>
 #include <sys/socket.h>
+#include <sys/timerfd.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -145,6 +147,9 @@ struct dhcphdr {
 
     uint32_t magic;
 };
+
+// Indicator whether dhcp is configured
+int dhcpconfigured = 0;
 
 // My address and server address. Used as state (i.e., 0 indicates discovery,
 // non-zero indicates request)
@@ -277,8 +282,14 @@ void dhcpsend(int sock)
     dhcphdr->magic = htonl(MAGIC_COOKIE);
 
     if (yiaddr == 0) {
+        syslog(LOG_INFO, "dhcp: discover");
+
         addopt(opt, DHCP_MESSAGE_TYPE, DISCOVER);
     } else {
+        syslog(LOG_INFO, "dhcp: request %d.%d.%d.%d from %d.%d.%d.%d",
+            yiaddr & 0xFF, (yiaddr >> 8) & 0xFF, (yiaddr >> 16) & 0xFF, (yiaddr >> 24) & 0xFF,
+            siaddr & 0xFF, (siaddr >> 8) & 0xFF, (siaddr >> 16) & 0xFF, (siaddr >> 24) & 0xFF);
+
         dhcphdr->siaddr = siaddr;
 
         addopt(opt, DHCP_MESSAGE_TYPE, REQUEST);
@@ -328,8 +339,16 @@ int dhcpstep(char *ifname, int sock)
     int n;
     uint8_t buf[65535];
 
-    if ((n = recv(sock, buf, 65535, 0)) == -1)
-        die("recv");
+    if ((n = recv(sock, buf, 65535, 0)) == -1) {
+        if (errno == ENOTSOCK) {
+            // If it is not a socket, it is probably a timerfd timing out
+            close(sock);
+            sock = dhcpstart(ifname);
+            if ((n = recv(sock, buf, 65535, 0)) == -1)
+                die("recv");
+        } else
+            die("recv");
+    }
 
     if (!dhcpvalid(n, buf))
         return sock; // Package is for whatever reason not a valid DHCP package
@@ -351,11 +370,17 @@ int dhcpstep(char *ifname, int sock)
             return sock; // Ignore DHCP package without message type
 
         if (*msgtype == OFFER) {
+            syslog(LOG_INFO, "dhcp: received offer %d.%d.%d.%d from %d.%d.%d.%d",
+                dhcphdr->yiaddr & 0xFF, (dhcphdr->yiaddr >> 8) & 0xFF, (dhcphdr->yiaddr >> 16) & 0xFF, (dhcphdr->yiaddr >> 24) & 0xFF,
+                dhcphdr->siaddr & 0xFF, (dhcphdr->siaddr >> 8) & 0xFF, (dhcphdr->siaddr >> 16) & 0xFF, (dhcphdr->siaddr >> 24) & 0xFF);
+
             yiaddr = dhcphdr->yiaddr;
             siaddr = dhcphdr->siaddr;
 
             dhcpsend(sock);
         } else if (*msgtype == ACK) {
+            syslog(LOG_INFO, "dhcp: acknowledged");
+
             // Initialize the link
             struct ifreq req;
             strncpy(req.ifr_name, ifname, IFNAMSIZ);
@@ -433,14 +458,37 @@ int dhcpstep(char *ifname, int sock)
             fclose(f);
             close(sock);
 
-            // Return when dhcp should be restarted (when the lease time is 90%)
-            int lease_time = 0xFFFF;
+            // Get the lease time
+            uint32_t lease_time = 0xFFFFFFFFU;
             uint8_t *lease = optget(options, IP_ADDRESS_LEASE_TIME);
             if (lease && *(lease - 1) == sizeof(uint32_t))
-                lease_time = (int) ntohl(*(uint32_t *) lease);
-            sock = -lease_time / 10 * 9;
+                lease_time = (uint32_t) ntohl(*(uint32_t *) lease);
+
+            // Cap lease time to 4 days
+            if (lease_time > 60*60*24*4)
+                lease_time = 60*60*24*4;
+
+            // Create timerfd and arm to 90%
+            int timerfd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
+            if (timerfd == -1)
+                die("timerfd_create");
+
+            struct itimerspec val = {
+                .it_value = { .tv_sec = lease_time / 10 * 9, .tv_nsec = 0 },
+                .it_interval = { 0 }
+            };
+            if (timerfd_settime(timerfd, 0, &val, NULL) == -1)
+                die("timerfd_settime");
+
+            dhcpconfigured = 1;
+            syslog(LOG_INFO, "dhcp: configured (for %ld secs)", val.it_value.tv_sec);
+
+            return timerfd;
         } else {
-            // In case of any other message (e.g., NACK) we go back to start
+            // In case of any other message (e.g., NACK) we go back to uninitialized state
+
+            syslog(LOG_INFO, "dhcp: deconfigured");
+
             yiaddr = siaddr = 0;
 
             dhcpsend(sock);

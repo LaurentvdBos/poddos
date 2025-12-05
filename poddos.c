@@ -2,13 +2,14 @@
 #include <argp.h>
 #include <dirent.h>
 #include <err.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stdlib.h>
 #include <fcntl.h>
-#include <unistd.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
+#include <syslog.h>
+#include <unistd.h>
 
 #include "pull.h"
 #include "layer.h"
@@ -300,6 +301,8 @@ int main(int argc, char **argv)
         die("open(%s)", layer_path);
     if (mkdirat(layer_fd, "ephemeral", 0777) == -1 && errno != EEXIST)
         die("mkdir(ephemeral)");
+
+    openlog(argv[0], LOG_NDELAY, LOG_USER);
 
     int argc_from_config = 0;
     char **argv_from_config = NULL;

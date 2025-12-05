@@ -25,9 +25,8 @@ static SSL_CTX *ssl_ctx = NULL;
 
 static void ssl_destroy()
 {
-    if (ssl_ctx) {
+    if (ssl_ctx)
         SSL_CTX_free(ssl_ctx);
-    }
 }
 
 static void ssl_init()
@@ -38,9 +37,8 @@ static void ssl_init()
         ssl_ctx = SSL_CTX_new(TLS_client_method());
         SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
         int err = SSL_CTX_set_default_verify_paths(ssl_ctx);
-        if (err != 1) {
+        if (err != 1)
             fprintf(stderr, "SSL_CTX_set_default_verify_paths: %s\n", ERR_error_string(ERR_get_error(), NULL));
-        }
 
         at_quick_exit(ssl_destroy);
         atexit(ssl_destroy);

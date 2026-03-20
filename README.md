@@ -14,10 +14,10 @@ Compile the software using `make`:
 make
 sudo make install
 ```
-Compiling requires OpenSSL and zlib headers. Under Ubuntu, those are the
-packages `libssl-dev` and `zlib1g-dev`. It installs itself to `/usr/local/bin`
-and adds `CAP_NET_ADMIN` to the binary to properly initiatlize networking in
-your containers.
+Compiling requires OpenSSL, zlib headers and zstd headers. Under Ubuntu, those
+are the packages `libssl-dev`, `zlib1g-dev` and `libzstd-dev`. It installs
+itself to `/usr/local/bin` and adds `CAP_NET_ADMIN` to the binary to properly
+initiatlize networking in your containers.
 
 Then, pull a container:
 ```bash

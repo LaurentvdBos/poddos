@@ -1,7 +1,7 @@
 CFLAGS = -g -O2 -Wall
-LDLIBS = -lssl -lcrypto -lz
+LDLIBS = -lssl -lcrypto -lz -lzstd
 
-poddos: poddos.o http.o inflate.o truncate.o chunked.o pull.o json.o untar.o layer.o net.o dhcp.o prune.o
+poddos: poddos.o http.o inflate.o truncate.o chunked.o pull.o json.o untar.o layer.o net.o dhcp.o prune.o zstd.o
 
 .PHONY: all clean install uninstall
 all: poddos

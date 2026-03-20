@@ -18,6 +18,7 @@
 #include "inflate.h"
 #include "poddos.h"
 #include "layer.h"
+#include "zstd.h"
 
 #if defined(__x86_64__)
 #define ARCH "amd64"
@@ -158,6 +159,10 @@ int pull(const char *full_url)
                 f = finfl(f, INFL_AUTOCLOSE);
             if (!strcmp(media_type, "application/vnd.oci.image.layer.v1.tar+gzip"))
                 f = finfl(f, INFL_AUTOCLOSE);
+            if (!strcmp(media_type, "application/vnd.docker.image.rootfs.diff.tar.zstd"))
+                f = fzstd(f, ZSTD_AUTOCLOSE);
+            if (!strcmp(media_type, "application/vnd.oci.image.layer.v1.tar+zstd"))
+                f = fzstd(f, ZSTD_AUTOCLOSE);
 
             struct tarfile file;
             FILE *data;

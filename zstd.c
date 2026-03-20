@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "poddos.h"
 #include "zstd.h"
 
 struct fzstd {
@@ -40,10 +42,8 @@ static ssize_t zread(void *cookie, char *buf, size_t n)
             ZSTD_inBuffer input = { z->in, z->in_sz, z->in_pos };
             ZSTD_outBuffer output = { z->out, z->out_n, 0 };
             size_t ret = ZSTD_decompressStream(z->dctx, &output, &input);
-            if (ZSTD_isError(ret)) {
-                fprintf(stderr, "zstd error: %s\n", ZSTD_getErrorName(ret));
-                return -1;
-            }
+            if (ZSTD_isError(ret))
+                diex("zstd error: %s", ZSTD_getErrorName(ret));
 
             z->in_pos = input.pos;
 
@@ -102,10 +102,8 @@ FILE *fzstd(FILE *f, unsigned flags)
     z->out = malloc(z->out_n);
 
     z->dctx = ZSTD_createDCtx();
-    if (!z->dctx || !z->in || !z->out) {
-        fprintf(stderr, "Could not initialize zstd context\n");
-        return NULL;
-    }
+    if (!z->dctx || !z->in || !z->out)
+        diex("Could not initialize zstd context");
 
     cookie_io_functions_t io_funcs = {
         .read = zread,

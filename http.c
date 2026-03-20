@@ -167,8 +167,8 @@ FILE *urlopen(char *url, unsigned flags, ...)
         char ip[INET6_ADDRSTRLEN];
         inet_ntop(rp->ai_family,
                   rp->ai_family ==
-                  AF_INET ? (void *) &((struct sockaddr_in *) rp->ai_addr)->
-                  sin_addr : (void *) &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr, ip, INET6_ADDRSTRLEN);
+                  AF_INET ? (void *) &((struct sockaddr_in *) rp->ai_addr)->sin_addr : (void *) &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr,
+                  ip, INET6_ADDRSTRLEN);
         fprintf(stderr, "Trying %s...\n", ip);
 
         sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
@@ -227,8 +227,7 @@ FILE *urlopen(char *url, unsigned flags, ...)
     } else
         f = fdopen(sock, "w+");
 
-    fprintf(f, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nAccept-Encoding: gzip, deflate, identity\r\n",
-            path, host);
+    fprintf(f, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nAccept-Encoding: gzip, deflate, identity\r\n", path, host);
     va_list va;
     va_start(va, flags);
     char *accept = NULL;

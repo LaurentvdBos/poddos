@@ -468,13 +468,14 @@ int dhcpstep(char *ifname, int sock)
             if (lease_time > 60*60*24*4)
                 lease_time = 60*60*24*4;
 
-            // Create timerfd and arm to 90%
-            int timerfd = timerfd_create(CLOCK_REALTIME, TFD_CLOEXEC);
+            // Create timerfd ...
+            int timerfd = timerfd_create(CLOCK_BOOTTIME, TFD_CLOEXEC);
             if (timerfd == -1)
                 die("timerfd_create");
 
+	    // ... and arm it to 90% of the lease time + random jitter between 0 and 128
             struct itimerspec val = {
-                .it_value = { .tv_sec = lease_time / 10 * 9, .tv_nsec = 0 },
+                .it_value = { .tv_sec = lease_time / 10 * 9 + (xid & 0x7F), .tv_nsec = 0 },
                 .it_interval = { 0 }
             };
             if (timerfd_settime(timerfd, 0, &val, NULL) == -1)

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "poddos.h"
 #include "inflate.h"
 
 #define CHUNK 1024
@@ -36,14 +37,12 @@ static ssize_t zread(void *cookie, char *buf, size_t n)
         }
 
         int ret = inflate(strm, Z_NO_FLUSH);
-        if (ret == Z_STREAM_ERROR || ret == Z_NEED_DICT || ret == Z_DATA_ERROR || ret == Z_MEM_ERROR) {
-            fprintf(stderr, "zread: %s\n", strm->msg);
-            return -1;
-        }
+        if (ret == Z_STREAM_ERROR || ret == Z_NEED_DICT || ret == Z_DATA_ERROR || ret == Z_MEM_ERROR)
+            diex("zread: %s", strm->msg);
         have = n - strm->avail_out;
 
         if (ret == Z_STREAM_END && strm->avail_in)
-            fprintf(stderr, "zread: end of stream with bytes pending.\n");
+            diex("zread: end of stream with bytes pending");
         if (ret == Z_STREAM_END)
             break;
     } while (have < n);
@@ -63,22 +62,20 @@ static int zclose(void *cookie)
     struct finf *z = (struct finf *) cookie;
     z_stream *strm = &z->strm;
     inflateEnd(strm);
-    if (z->flags | INFL_AUTOCLOSE)
+    if (z->flags & INFL_AUTOCLOSE)
         ret = fclose(z->f) ? -1 : 0;
     free(z);
     return ret;
 }
 
-FILE *finfl(FILE * f, unsigned flags)
+FILE *finfl(FILE *f, unsigned flags)
 {
     struct finf *z = malloc(sizeof(struct finf));
     memset(z, 0, sizeof(struct finf));
     z->flags = flags;
 
-    if (inflateInit2(&z->strm, (flags & INFL_RAW) ? -MAX_WBITS : (MAX_WBITS + 32)) != Z_OK) {
-        fprintf(stderr, "Could not initialize inflate\n");
-        return NULL;
-    }
+    if (inflateInit2(&z->strm, (flags & INFL_RAW) ? -MAX_WBITS : (MAX_WBITS + 32)) != Z_OK)
+        diex("Could not initialize inflate");
     z->f = f;
 
     cookie_io_functions_t io_funcs = {

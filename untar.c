@@ -125,7 +125,7 @@ unsigned unpax(FILE * f, struct tarfile *file)
             else if ('0' <= c && c <= '9')
                 len = 10 * len + (c - '0');
             else
-                return flags;   // Ignore invalid pax headers
+                return flags; // Ignore invalid pax headers
         }
 
         if (len > PAX_MAX)
@@ -135,7 +135,7 @@ unsigned unpax(FILE * f, struct tarfile *file)
         char key[PAX_MAX];
         if (fread(key, 1, len - n, f) < len - n)
             return flags;
-        key[len - n - 1] = 0;   // Overwrite the new line
+        key[len - n - 1] = 0; // Overwrite the new line
 
         // Split the string in a key / value pair
         char *val = strchr(key, '=') + 1;
@@ -191,9 +191,8 @@ FILE *untar(FILE * f, struct tarfile *file)
         int n = fread(buf, 1, 512, f);
         if (n != 512)
             return NULL;
-        if (!memcmp(buf, zerobuf, 512)) {
+        if (!memcmp(buf, zerobuf, 512))
             return NULL;
-        }
 
         struct tarheader *tar = (struct tarheader *) buf;
         unsigned long blksize = strtoul(tar->size, NULL, 8);
@@ -205,7 +204,7 @@ FILE *untar(FILE * f, struct tarfile *file)
 
         switch (tar->type) {
         case 'x':
-            FILE * g = ftrunc(f, blksize, TRUNC_DRAIN);
+            FILE *g = ftrunc(f, blksize, TRUNC_DRAIN);
             paxflags = unpax(g, file);
             fclose(g);
             continue;

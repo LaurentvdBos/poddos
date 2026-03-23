@@ -631,7 +631,8 @@ int dhcpstep(char *ifname, int sock)
 
             // ... and arm it to 90% of the lease time + random jitter between 0 and 128
             struct itimerspec val = {
-                .it_value = { .tv_sec = lease_time / 10 * 9 + (xid & 0x7F), .tv_nsec = 0 },                .it_interval = { 0 }
+                .it_value = { .tv_sec = lease_time / 10 * 9 + (xid & 0x7F), .tv_nsec = 0 },
+		.it_interval = { 0 }
             };
             if (timerfd_settime(timerfd, 0, &val, NULL) == -1)
                 die("timerfd_settime");

@@ -5,6 +5,7 @@
 #include <net/if.h>
 
 extern char *macvlan;
+extern int seq;
 
 void bringloup();
 void ifremove(char *ifname);

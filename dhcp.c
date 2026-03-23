@@ -22,6 +22,9 @@
 
 #include "dhcp.h"
 #include "poddos.h"
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include "net.h"
 
 #define MAGIC_COOKIE 0x63825363
 
@@ -190,8 +193,14 @@ uint8_t *optget(uint8_t *buf, enum dhcpopt which)
 {
     int n = 0;
     while (buf[n] != END) {
+        if (buf[n] == PAD) {
+            n += 1;
+            continue;
+        }
+
         if (buf[n] == which)
             return buf + n + 2;
+
         uint8_t len = buf[n + 1];
         n += len + 2;
     }
@@ -381,55 +390,208 @@ int dhcpstep(char *ifname, int sock)
         } else if (*msgtype == ACK) {
             syslog(LOG_INFO, "dhcp: acknowledged");
 
-            // Initialize the link
-            struct ifreq req;
-            strncpy(req.ifr_name, ifname, IFNAMSIZ);
-            struct sockaddr_in *sai = (struct sockaddr_in *) &req.ifr_addr;
-            sai->sin_family = AF_INET;
-            sai->sin_port = 0;
+            const uint8_t *router = optget(options, ROUTER);
+            const uint8_t *brdcast = optget(options, BROADCAST);
+            const uint8_t *lease = optget(options, IP_ADDRESS_LEASE_TIME);
+            const uint8_t *mask = optget(options, SUBNET_MASK);
+            if (!router || !brdcast || !lease || !mask)
+                diex("Missing required DHCP options in ACK");
+            if (*(router - 1) != 4 || *(brdcast - 1) != 4 || *(lease - 1) != 4 || *(mask - 1) != 4)
+                diex("Invalid length of required DHCP options in ACK");
 
-            // Set ip
-            sai->sin_addr.s_addr = yiaddr;
-            if (ioctl(sock, SIOCSIFADDR, &req) == -1)
-                die("ioctl(SIOCSIFADDR)");
+            uint32_t lease_time = 0xFFFFFFFFU;
+            lease_time = ntohl(*(uint32_t *)lease);
 
-            // Set netmask
-            uint8_t *mask = optget(options, SUBNET_MASK);
-            if (mask) {
-                memcpy(&sai->sin_addr, mask, *(mask - 1));
-                if (ioctl(sock, SIOCSIFNETMASK, &req) == -1)
-                    die("ioctl(SIOCIFNETMASK)");
+            uint8_t nlbuf[4096];
+            int netfd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
+            if (netfd < 0)
+                die("socket(AF_NETLINK)");
+
+            struct sockaddr_nl sa;
+            sa.nl_family = AF_NETLINK;
+            sa.nl_groups = RTMGRP_LINK;
+            sa.nl_pid = 0;
+            if (bind(netfd, (struct sockaddr *) &sa, sizeof(sa)) < 0)
+                die("bind(netfd)");
+
+            struct {
+                struct nlmsghdr hdr;
+                struct ifinfomsg ifinfo;
+                char attrbuf[512];
+            } req_info;
+
+            // Send a request to obtain the link index of the provided link
+            memset(&req_info, 0, sizeof(req_info));
+            req_info.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req_info.ifinfo));
+            req_info.hdr.nlmsg_flags = NLM_F_REQUEST;
+            req_info.hdr.nlmsg_type = RTM_GETLINK;
+            req_info.hdr.nlmsg_pid = 0;
+            req_info.hdr.nlmsg_seq = seq++;
+
+            req_info.ifinfo.ifi_family = AF_UNSPEC;
+            req_info.ifinfo.ifi_index = 0;
+            req_info.ifinfo.ifi_change = 0xFFFFFFFF;
+
+            int n = 512;
+            struct rtattr *rta0 = (struct rtattr *) (((char *) &req_info) + NLMSG_ALIGN(req_info.hdr.nlmsg_len));
+            rta0->rta_type = IFLA_IFNAME;
+            rta0->rta_len = RTA_LENGTH(strlen(ifname));
+            strcpy(RTA_DATA(rta0), ifname);
+            rta0 = RTA_NEXT(rta0, n);
+
+            req_info.hdr.nlmsg_len = NLMSG_ALIGN(req_info.hdr.nlmsg_len) + (512 - n);
+
+            if (write(netfd, &req_info, req_info.hdr.nlmsg_len) == -1)
+                die("write");
+
+            if ((n = read(netfd, nlbuf, 4096)) == -1)
+                die("read(netfd)");
+
+            int ifindex = -1;
+            for (struct nlmsghdr * hdr = (struct nlmsghdr *)nlbuf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+                if (hdr->nlmsg_type == NLMSG_DONE)
+                    break;
+
+                if (hdr->nlmsg_type == NLMSG_ERROR) {
+                    struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+                    if (nlerr->error < 0)
+                        errno = -nlerr->error, die("rtnetlink");
+                }
+
+                if (hdr->nlmsg_type == RTM_NEWLINK) {
+                    memcpy(&req_info, hdr, sizeof(struct nlmsghdr) + sizeof(struct ifinfomsg));
+                    ifindex = req_info.ifinfo.ifi_index;
+                }
             }
+            if (ifindex == -1)
+                diex("Interface %s went missing.", ifname);
 
-            // Set broadcast address
-            uint8_t *brdcast = optget(options, BROADCAST);
-            if (brdcast) {
-                memcpy(&sai->sin_addr, brdcast, *(brdcast - 1));
-                if (ioctl(sock, SIOCSIFBRDADDR, &req) == -1)
-                    die("ioctl(SIOCSIFBRDADDR)");
+            // Set the IP address received from the DHCP server
+            struct {
+                struct nlmsghdr hdr;
+                struct ifaddrmsg ifaddr;
+                char attrbuf[512];
+            } req_addr;
+
+            memset(&req_addr, 0, sizeof(req_addr));
+            req_addr.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+            req_addr.hdr.nlmsg_type = RTM_NEWADDR;
+            req_addr.hdr.nlmsg_pid = 0;
+            req_addr.hdr.nlmsg_seq = seq++;
+
+            req_addr.ifaddr.ifa_family = AF_INET;
+            req_addr.ifaddr.ifa_scope = RT_SCOPE_UNIVERSE;
+            req_addr.ifaddr.ifa_index = ifindex;
+            req_addr.ifaddr.ifa_prefixlen = __builtin_popcount(mask[0] | (mask[1] << 8) | (mask[2] << 16) | (mask[3] << 24));
+
+            int attrlen = 0;
+            struct rtattr *rta;
+
+            // Set the IP address as local address
+            rta = (struct rtattr *) req_addr.attrbuf;
+            rta->rta_type = IFA_LOCAL;
+            rta->rta_len = RTA_LENGTH(sizeof(yiaddr));
+            memcpy(RTA_DATA(rta), &yiaddr, sizeof(yiaddr));
+            attrlen += RTA_ALIGN(rta->rta_len);
+
+            // Set the broadcast address
+            struct in_addr baddr;
+            memcpy(&baddr, brdcast, sizeof(baddr));
+            rta = (struct rtattr *) (req_addr.attrbuf + attrlen);
+            rta->rta_type = IFA_BROADCAST;
+            rta->rta_len = RTA_LENGTH(sizeof(baddr));
+            memcpy(RTA_DATA(rta), &baddr, sizeof(baddr));
+            attrlen += RTA_ALIGN(rta->rta_len);
+
+            // Set the preferred and valid lifetime of the address to the lease time
+            struct ifa_cacheinfo ci = {
+                .ifa_prefered = lease_time,
+                .ifa_valid = lease_time,
+                .cstamp = 0,
+                .tstamp = 0
+            };
+
+            rta = (struct rtattr *) (req_addr.attrbuf + attrlen);
+            rta->rta_type = IFA_CACHEINFO;
+            rta->rta_len = RTA_LENGTH(sizeof(ci));
+            memcpy(RTA_DATA(rta), &ci, sizeof(ci));
+            attrlen += RTA_ALIGN(rta->rta_len);
+
+            req_addr.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req_addr.ifaddr)) + attrlen;
+
+            if (write(netfd, &req_addr, req_addr.hdr.nlmsg_len) == -1)
+                die("write(netfd)");
+
+            if ((n = read(netfd, nlbuf, sizeof(nlbuf))) == -1)
+                die("read(netfd)");
+
+            for (struct nlmsghdr *hdr = (struct nlmsghdr *) nlbuf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+                if (hdr->nlmsg_type == NLMSG_ERROR) {
+                    struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+                    if (nlerr->error < 0)
+                        errno = -nlerr->error, die("rtnetlink RTM_NEWADDR");
+                }
             }
 
             // Set a default routing entry (the "gateway")
-            uint8_t *router = optget(options, ROUTER);
-            if (router) {
-                struct rtentry route = { 0 };
-                sai = (struct sockaddr_in *) &route.rt_gateway;
-                sai->sin_family = AF_INET;
-                memcpy(&sai->sin_addr, router, *(router - 1));
-                sai = (struct sockaddr_in *) &route.rt_dst;
-                sai->sin_family = AF_INET;
-                sai->sin_addr.s_addr = INADDR_ANY;
-                sai = (struct sockaddr_in *) &route.rt_genmask;
-                sai->sin_family = AF_INET;
-                sai->sin_addr.s_addr = INADDR_ANY;
+            struct in_addr gw;
+            memcpy(&gw, router, sizeof(gw));
 
-                route.rt_flags = RTF_UP | RTF_GATEWAY;
-                route.rt_metric = 0;
-                route.rt_dev = ifname;
+            struct {
+                struct nlmsghdr nh;
+                struct rtmsg rt;
+                char attrbuf[256];
+            } rt_req;
 
-                ioctl(sock, SIOCDELRT, &route); // Errors are ignored
-                if (ioctl(sock, SIOCADDRT, &route) == -1)
-                    die("ioctl(SIOCADDRT)");
+            memset(&rt_req, 0, sizeof(rt_req));
+            rt_req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
+            rt_req.nh.nlmsg_type = RTM_NEWROUTE;
+            rt_req.nh.nlmsg_seq = seq++;
+
+            rt_req.rt.rtm_family = AF_INET;
+            rt_req.rt.rtm_table = RT_TABLE_MAIN;
+            rt_req.rt.rtm_protocol = RTPROT_DHCP;
+            rt_req.rt.rtm_scope = RT_SCOPE_UNIVERSE;
+            rt_req.rt.rtm_type = RTN_UNICAST;
+            rt_req.rt.rtm_flags = RTF_GATEWAY;
+            rt_req.rt.rtm_dst_len = 0;
+            rt_req.rt.rtm_src_len = 0;
+
+            int rt_attrs = 0;
+
+            // Destionation is zero (i.e., default route)
+            rta = (struct rtattr *)rt_req.attrbuf;
+            rta->rta_type = RTA_DST;
+            rta->rta_len = RTA_LENGTH(sizeof(struct in_addr));
+            memset(RTA_DATA(rta), 0, sizeof(struct in_addr));
+            rt_attrs += RTA_ALIGN(rta->rta_len);
+
+            rta = (struct rtattr *)(rt_req.attrbuf + rt_attrs);
+            rta->rta_type = RTA_OIF;
+            rta->rta_len = RTA_LENGTH(sizeof(int));
+            memcpy(RTA_DATA(rta), &ifindex, sizeof(ifindex));
+            rt_attrs += RTA_ALIGN(rta->rta_len);
+
+            rta = (struct rtattr *)(rt_req.attrbuf + rt_attrs);
+            rta->rta_type = RTA_GATEWAY;
+            rta->rta_len = RTA_LENGTH(sizeof(gw));
+            memcpy(RTA_DATA(rta), &gw, sizeof(gw));
+            rt_attrs += RTA_ALIGN(rta->rta_len);
+
+            rt_req.nh.nlmsg_len = NLMSG_LENGTH(sizeof(rt_req.rt)) + rt_attrs;
+
+            if (write(netfd, &rt_req, rt_req.nh.nlmsg_len) == -1)
+                die("write(netfd)");
+
+            if ((n = read(netfd, nlbuf, sizeof(nlbuf))) == -1)
+                die("read(netfd)");
+
+            for (struct nlmsghdr *hdr = (struct nlmsghdr *) nlbuf; NLMSG_OK(hdr, n); hdr = NLMSG_NEXT(hdr, n)) {
+                if (hdr->nlmsg_type == NLMSG_ERROR) {
+                    struct nlmsgerr *nlerr = (struct nlmsgerr *) NLMSG_DATA(hdr);
+                    if (nlerr->error < 0)
+                        errno = -nlerr->error, die("rtnetlink RTM_NEWROUTE");
+                }
             }
 
             // Create a /etc/resolv.conf
@@ -458,12 +620,6 @@ int dhcpstep(char *ifname, int sock)
             fclose(f);
             close(sock);
 
-            // Get the lease time
-            uint32_t lease_time = 0xFFFFFFFFU;
-            uint8_t *lease = optget(options, IP_ADDRESS_LEASE_TIME);
-            if (lease && *(lease - 1) == sizeof(uint32_t))
-                lease_time = (uint32_t) ntohl(*(uint32_t *) lease);
-
             // Cap lease time to 4 days
             if (lease_time > 60*60*24*4)
                 lease_time = 60*60*24*4;
@@ -473,10 +629,9 @@ int dhcpstep(char *ifname, int sock)
             if (timerfd == -1)
                 die("timerfd_create");
 
-	    // ... and arm it to 90% of the lease time + random jitter between 0 and 128
+            // ... and arm it to 90% of the lease time + random jitter between 0 and 128
             struct itimerspec val = {
-                .it_value = { .tv_sec = lease_time / 10 * 9 + (xid & 0x7F), .tv_nsec = 0 },
-                .it_interval = { 0 }
+                .it_value = { .tv_sec = lease_time / 10 * 9 + (xid & 0x7F), .tv_nsec = 0 },                .it_interval = { 0 }
             };
             if (timerfd_settime(timerfd, 0, &val, NULL) == -1)
                 die("timerfd_settime");

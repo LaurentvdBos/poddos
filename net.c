@@ -19,7 +19,7 @@
 
 char *macvlan = "macvlan0";
 
-static int seq = 0;
+int seq = 0;
 
 void bringloup()
 {

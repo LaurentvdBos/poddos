@@ -16,6 +16,24 @@ poddos \- lightweight user-space container runtime
 .SH DESCRIPTION
 poddos is a small container runtime to pull Docker/OCI layers and run workloads in namespace-isolated containers.
 .PP
+Configuration format
+
+poddos stores container-mounted configuration in the global layer path (see --layer). Each named container has a config file in this directory that is used by start/exec for default options and commands.
+
+The configuration file is plain text with sections matching subcommand names and lines containing command-line flags and arguments, e.g.:
+.nf
+[start]
+--overlay=base
+--env=PATH=/usr/bin
+/bin/sh
+.fi
+
+Override with .2 file
+
+For per-user or environment-specific overrides, a second file can be defined with the same name plus a .2 postfix, e.g. `ubuntu.2`. The override file is processed after the base config and can change or append options for pull/start/exec/prune.
+.PP
+When `poddos pull` is run with a name, the base configuration file is rewritten with the updated image config, so any previous settings are replaced unless retained via .2 override.
+.PP
 Global options apply to all commands and include:
 .TP
 \fB-l, --layer PATH\fR

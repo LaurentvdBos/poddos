@@ -399,8 +399,7 @@ int dhcpstep(char *ifname, int sock)
             if (*(router - 1) != 4 || *(brdcast - 1) != 4 || *(lease - 1) != 4 || *(mask - 1) != 4)
                 diex("Invalid length of required DHCP options in ACK");
 
-            uint32_t lease_time = 0xFFFFFFFFU;
-            lease_time = ntohl(*(uint32_t *)lease);
+            uint32_t lease_time = ntohl(*(uint32_t *)lease);
 
             uint8_t nlbuf[4096];
             int netfd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
@@ -423,7 +422,7 @@ int dhcpstep(char *ifname, int sock)
             // Send a request to obtain the link index of the provided link
             memset(&req_info, 0, sizeof(req_info));
             req_info.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req_info.ifinfo));
-            req_info.hdr.nlmsg_flags = NLM_F_REQUEST;
+            req_info.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE;
             req_info.hdr.nlmsg_type = RTM_GETLINK;
             req_info.hdr.nlmsg_pid = 0;
             req_info.hdr.nlmsg_seq = seq++;
@@ -433,11 +432,11 @@ int dhcpstep(char *ifname, int sock)
             req_info.ifinfo.ifi_change = 0xFFFFFFFF;
 
             int n = 512;
-            struct rtattr *rta0 = (struct rtattr *) (((char *) &req_info) + NLMSG_ALIGN(req_info.hdr.nlmsg_len));
-            rta0->rta_type = IFLA_IFNAME;
-            rta0->rta_len = RTA_LENGTH(strlen(ifname));
-            strcpy(RTA_DATA(rta0), ifname);
-            rta0 = RTA_NEXT(rta0, n);
+            struct rtattr *rta_info = (struct rtattr *) (((char *) &req_info) + NLMSG_ALIGN(req_info.hdr.nlmsg_len));
+            rta_info->rta_type = IFLA_IFNAME;
+            rta_info->rta_len = RTA_LENGTH(strlen(ifname));
+            strcpy(RTA_DATA(rta_info), ifname);
+            rta_info = RTA_NEXT(rta_info, n);
 
             req_info.hdr.nlmsg_len = NLMSG_ALIGN(req_info.hdr.nlmsg_len) + (512 - n);
 
@@ -474,7 +473,7 @@ int dhcpstep(char *ifname, int sock)
             } req_addr;
 
             memset(&req_addr, 0, sizeof(req_addr));
-            req_addr.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+            req_addr.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE;
             req_addr.hdr.nlmsg_type = RTM_NEWADDR;
             req_addr.hdr.nlmsg_pid = 0;
             req_addr.hdr.nlmsg_seq = seq++;
@@ -484,24 +483,21 @@ int dhcpstep(char *ifname, int sock)
             req_addr.ifaddr.ifa_index = ifindex;
             req_addr.ifaddr.ifa_prefixlen = __builtin_popcount(mask[0] | (mask[1] << 8) | (mask[2] << 16) | (mask[3] << 24));
 
-            int attrlen = 0;
-            struct rtattr *rta;
-
             // Set the IP address as local address
-            rta = (struct rtattr *) req_addr.attrbuf;
-            rta->rta_type = IFA_LOCAL;
-            rta->rta_len = RTA_LENGTH(sizeof(yiaddr));
-            memcpy(RTA_DATA(rta), &yiaddr, sizeof(yiaddr));
-            attrlen += RTA_ALIGN(rta->rta_len);
+            n = 512;
+            struct rtattr *rta_addr = (struct rtattr *) req_addr.attrbuf;
+            rta_addr->rta_type = IFA_LOCAL;
+            rta_addr->rta_len = RTA_LENGTH(sizeof(yiaddr));
+            memcpy(RTA_DATA(rta_addr), &yiaddr, sizeof(yiaddr));
+            rta_addr = RTA_NEXT(rta_addr, n);
 
             // Set the broadcast address
             struct in_addr baddr;
             memcpy(&baddr, brdcast, sizeof(baddr));
-            rta = (struct rtattr *) (req_addr.attrbuf + attrlen);
-            rta->rta_type = IFA_BROADCAST;
-            rta->rta_len = RTA_LENGTH(sizeof(baddr));
-            memcpy(RTA_DATA(rta), &baddr, sizeof(baddr));
-            attrlen += RTA_ALIGN(rta->rta_len);
+            rta_addr->rta_type = IFA_BROADCAST;
+            rta_addr->rta_len = RTA_LENGTH(sizeof(baddr));
+            memcpy(RTA_DATA(rta_addr), &baddr, sizeof(baddr));
+            rta_addr = RTA_NEXT(rta_addr, n);
 
             // Set the preferred and valid lifetime of the address to the lease time
             struct ifa_cacheinfo ci = {
@@ -511,13 +507,12 @@ int dhcpstep(char *ifname, int sock)
                 .tstamp = 0
             };
 
-            rta = (struct rtattr *) (req_addr.attrbuf + attrlen);
-            rta->rta_type = IFA_CACHEINFO;
-            rta->rta_len = RTA_LENGTH(sizeof(ci));
-            memcpy(RTA_DATA(rta), &ci, sizeof(ci));
-            attrlen += RTA_ALIGN(rta->rta_len);
+            rta_addr->rta_type = IFA_CACHEINFO;
+            rta_addr->rta_len = RTA_LENGTH(sizeof(ci));
+            memcpy(RTA_DATA(rta_addr), &ci, sizeof(ci));
+            rta_addr = RTA_NEXT(rta_addr, n);
 
-            req_addr.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req_addr.ifaddr)) + attrlen;
+            req_addr.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(req_addr.ifaddr)) + (512 - n);
 
             if (write(netfd, &req_addr, req_addr.hdr.nlmsg_len) == -1)
                 die("write(netfd)");
@@ -541,46 +536,43 @@ int dhcpstep(char *ifname, int sock)
                 struct nlmsghdr nh;
                 struct rtmsg rt;
                 char attrbuf[256];
-            } rt_req;
+            } req_rt;
 
-            memset(&rt_req, 0, sizeof(rt_req));
-            rt_req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
-            rt_req.nh.nlmsg_type = RTM_NEWROUTE;
-            rt_req.nh.nlmsg_seq = seq++;
+            memset(&req_rt, 0, sizeof(req_rt));
+            req_rt.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE;
+            req_rt.nh.nlmsg_type = RTM_NEWROUTE;
+            req_rt.nh.nlmsg_seq = seq++;
 
-            rt_req.rt.rtm_family = AF_INET;
-            rt_req.rt.rtm_table = RT_TABLE_MAIN;
-            rt_req.rt.rtm_protocol = RTPROT_DHCP;
-            rt_req.rt.rtm_scope = RT_SCOPE_UNIVERSE;
-            rt_req.rt.rtm_type = RTN_UNICAST;
-            rt_req.rt.rtm_flags = RTF_GATEWAY;
-            rt_req.rt.rtm_dst_len = 0;
-            rt_req.rt.rtm_src_len = 0;
-
-            int rt_attrs = 0;
+            req_rt.rt.rtm_family = AF_INET;
+            req_rt.rt.rtm_table = RT_TABLE_MAIN;
+            req_rt.rt.rtm_protocol = RTPROT_DHCP;
+            req_rt.rt.rtm_scope = RT_SCOPE_UNIVERSE;
+            req_rt.rt.rtm_type = RTN_UNICAST;
+            req_rt.rt.rtm_flags = RTF_GATEWAY;
+            req_rt.rt.rtm_dst_len = 0;
+            req_rt.rt.rtm_src_len = 0;
 
             // Destionation is zero (i.e., default route)
-            rta = (struct rtattr *)rt_req.attrbuf;
-            rta->rta_type = RTA_DST;
-            rta->rta_len = RTA_LENGTH(sizeof(struct in_addr));
-            memset(RTA_DATA(rta), 0, sizeof(struct in_addr));
-            rt_attrs += RTA_ALIGN(rta->rta_len);
+            n = 512;
+            struct rtattr *rta_rt = (struct rtattr *)req_rt.attrbuf;
+            rta_rt->rta_type = RTA_DST;
+            rta_rt->rta_len = RTA_LENGTH(sizeof(struct in_addr));
+            memset(RTA_DATA(rta_rt), 0, sizeof(struct in_addr));
+            rta_rt = RTA_NEXT(rta_rt, n);
 
-            rta = (struct rtattr *)(rt_req.attrbuf + rt_attrs);
-            rta->rta_type = RTA_OIF;
-            rta->rta_len = RTA_LENGTH(sizeof(int));
-            memcpy(RTA_DATA(rta), &ifindex, sizeof(ifindex));
-            rt_attrs += RTA_ALIGN(rta->rta_len);
+            rta_rt->rta_type = RTA_OIF;
+            rta_rt->rta_len = RTA_LENGTH(sizeof(int));
+            memcpy(RTA_DATA(rta_rt), &ifindex, sizeof(ifindex));
+            rta_rt = RTA_NEXT(rta_rt, n);
 
-            rta = (struct rtattr *)(rt_req.attrbuf + rt_attrs);
-            rta->rta_type = RTA_GATEWAY;
-            rta->rta_len = RTA_LENGTH(sizeof(gw));
-            memcpy(RTA_DATA(rta), &gw, sizeof(gw));
-            rt_attrs += RTA_ALIGN(rta->rta_len);
+            rta_rt->rta_type = RTA_GATEWAY;
+            rta_rt->rta_len = RTA_LENGTH(sizeof(gw));
+            memcpy(RTA_DATA(rta_rt), &gw, sizeof(gw));
+            rta_rt = RTA_NEXT(rta_rt, n);
 
-            rt_req.nh.nlmsg_len = NLMSG_LENGTH(sizeof(rt_req.rt)) + rt_attrs;
+            req_rt.nh.nlmsg_len = NLMSG_LENGTH(sizeof(req_rt.rt)) + (512 - n);
 
-            if (write(netfd, &rt_req, rt_req.nh.nlmsg_len) == -1)
+            if (write(netfd, &req_rt, req_rt.nh.nlmsg_len) == -1)
                 die("write(netfd)");
 
             if ((n = read(netfd, nlbuf, sizeof(nlbuf))) == -1)
@@ -619,6 +611,7 @@ int dhcpstep(char *ifname, int sock)
 
             fclose(f);
             close(sock);
+            close(netfd);
 
             // Cap lease time to 4 days
             if (lease_time > 60*60*24*4)
@@ -632,7 +625,7 @@ int dhcpstep(char *ifname, int sock)
             // ... and arm it to 90% of the lease time + random jitter between 0 and 128
             struct itimerspec val = {
                 .it_value = { .tv_sec = lease_time / 10 * 9 + (xid & 0x7F), .tv_nsec = 0 },
-		.it_interval = { 0 }
+                .it_interval = { 0 }
             };
             if (timerfd_settime(timerfd, 0, &val, NULL) == -1)
                 die("timerfd_settime");
@@ -643,7 +636,6 @@ int dhcpstep(char *ifname, int sock)
             return timerfd;
         } else {
             // In case of any other message (e.g., NACK) we go back to uninitialized state
-
             syslog(LOG_INFO, "dhcp: deconfigured");
 
             yiaddr = siaddr = 0;

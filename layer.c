@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -644,6 +645,10 @@ void lstart(unsigned flags, char **argv, char **envp)
     clearenv();
     for (int i = 0; envp[i]; i++)
         putenv(envp[i]);
+
+    // Set the parent-death signal such that this process dies if the parent dies
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL) == -1)
+        die("prctl(PR_SET_PDEATHSIG)");
 
     execvp(argv[0], argv);
     die("execv");

@@ -8,12 +8,14 @@ all: poddos
 clean:
 	-rm *.o
 	-rm poddos
-install: poddos poddos@.service poddos.1
+install: poddos poddos@.service poddos.1 poddos.bash
 	install poddos /usr/local/bin/
 	setcap cap_net_admin+eip /usr/local/bin/poddos
 	install --mode=644 --compare poddos@.service /etc/systemd/user/
 	install --mode=644 poddos.1 /usr/local/share/man/man1/
+	install --mode=644 poddos.bash /etc/bash_completion.d/poddos
 uninstall:
 	-rm /usr/local/bin/poddos
 	-rm /etc/systemd/user/poddos@.service
 	-rm /usr/local/share/man/man1/poddos.1
+	-rm /etc/bash_completion.d/poddos

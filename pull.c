@@ -36,7 +36,7 @@ int pull(const char *full_url)
     char url[URL_MAX + 1], repository[URL_MAX + 1], ref[URL_MAX + 1], url2[URL_MAX + 1];
 
     if (sscanf(full_url, "%1000[^/]/%1000[^:]:%1000s", url, repository, ref) != 3)
-        return -1;
+        diex("Invalid URL: %s, format should be <url>/<repository>:<reference>", full_url);
     int ret = snprintf(url2, URL_MAX, "https://%s/v2/%s/manifests/%s", url, repository, ref);
     if (ret > URL_MAX)
         diex("URL too long");
@@ -47,7 +47,7 @@ int pull(const char *full_url)
         urlopen(url2, HTTP_ACCEPT,
                 "application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json");
     if (!f)
-        return -1;
+        diex("Could not open URL: %s", url2);
 
     char *json = NULL;
     size_t n = 0;

@@ -8,7 +8,7 @@ all: poddos
 clean:
 	-rm *.o
 	-rm poddos
-install: poddos poddos@.service poddos.1 poddos.bash
+install: poddos poddos@.service poddos.bash
 	install poddos /usr/local/bin/
 	setcap cap_net_admin+eip /usr/local/bin/poddos
 	install --mode=644 --compare poddos@.service /etc/systemd/user/

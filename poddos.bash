@@ -59,6 +59,28 @@ _poddos_names_start() {
     done
 }
 
+_poddos_option_candidates() {
+    local subcmd="$1"
+    case "$subcmd" in
+        pull)
+            printf '%s ' --url --help --usage
+            ;;
+        start)
+            printf '%s ' --overlay --env --ephemeral --no-ephemeral --net --mac --dns --bind --directory --help --usage
+            ;;
+        exec)
+            printf '%s ' --env --help --usage
+            ;;
+        prune)
+            printf '%s ' --all --force --help --usage
+            printf '%s ' $(_poddos_overlays)
+            ;;
+        *)
+            printf '%s ' pull start exec prune --layer --name --help --usage
+            ;;
+    esac
+}
+
 _poddos() {
     local cur prev words cword
     _get_comp_words_by_ref -n : cur prev words cword
@@ -77,6 +99,11 @@ _poddos() {
         local ifs
         ifs=$(ls /sys/class/net 2>/dev/null)
         COMPREPLY=( $(compgen -W "$ifs" -- "$cur") )
+        return 0
+    fi
+
+    if [[ "$prev" == "--env" || "$prev" == "--dns" || "$prev" == "--bind" || "$prev" == "--mac" || "$prev" == "--directory" || "$prev" == "--url" ]]; then
+        # These options expect a value, so do not complete flags here.
         return 0
     fi
 
@@ -114,8 +141,25 @@ _poddos() {
         esac
     fi
 
+    if (( cword > 1 )); then
+        local prevprev
+        prevprev=${words[cword-2]}
+
+        if [[ "$subcmd" != "" ]]; then
+            COMPREPLY=( $(compgen -W "$(_poddos_option_candidates "$subcmd")" -- "$cur") )
+            return 0
+        fi
+
+        case "$prevprev" in
+            --layer|--name|-n|--overlay|-o|--net|--mac|--dns|--bind|--directory|--env)
+                COMPREPLY=( $(compgen -W "$(_poddos_option_candidates "")" -- "$cur") )
+                return 0
+                ;;
+        esac
+    fi
+
     if [ $cword -eq 1 ]; then
-        COMPREPLY=( $(compgen -W "pull start exec prune --layer --name" -- "$cur") )
+        COMPREPLY=( $(compgen -W "$(_poddos_option_candidates "")" -- "$cur") )
         return 0
     fi
 
@@ -127,24 +171,7 @@ _poddos() {
             return 0
         fi
 
-        if [[ "$subcmd" == "start" ]]; then
-            COMPREPLY=( $(compgen -W "--overlay --env --ephemeral --no-ephemeral --net --mac --dns --bind --directory" -- "$cur") )
-            return 0
-        fi
-
-        if [[ "$subcmd" == "exec" ]]; then
-            COMPREPLY=( $(compgen -W "--env" -- "$cur") )
-            return 0
-        fi
-
-        if [[ "$subcmd" == "prune" ]]; then
-            # prune options and overlay names from layer path
-            local overlays
-            overlays=$(printf '%s ' $(_poddos_overlays))
-            COMPREPLY=( $(compgen -W "--all --force $overlays" -- "$cur") )
-            return 0
-        fi
-
+        COMPREPLY=( $(compgen -W "$(_poddos_option_candidates "$subcmd")" -- "$cur") )
         return 0
     fi
 

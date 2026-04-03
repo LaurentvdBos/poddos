@@ -28,7 +28,7 @@ _poddos_layer_path() {
 _poddos_names_configured() {
     local dir; dir=$(_poddos_layer_path)
     if [ -d "$dir" ]; then
-        find "$dir" -maxdepth 1 -type f ! -name '*.2' -printf '%f\n' 2>/dev/null
+        find "$dir" -maxdepth 1 -type f ! -name '*.2' ! -name '*~' -printf '%f\n' 2>/dev/null
     fi
 }
 

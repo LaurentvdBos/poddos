@@ -233,7 +233,17 @@ int pull(const char *full_url)
                 config_name = config_name + 1;
         }
 
-        int fd = openat(layer_fd, config_name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        // Store old configuration if it exists, so that we can restore it if something goes wrong
+        char config_name_backup[NAME_MAX];
+        ret = snprintf(config_name_backup, NAME_MAX, "%s~", config_name);
+        if (ret > NAME_MAX)
+            diex("Name too long");
+        if (renameat(layer_fd, config_name, layer_fd, config_name_backup) == -1) {
+            if (errno != ENOENT)
+                die("rename(%s, %s)", config_name, config_name_backup);
+        }
+
+        int fd = openat(layer_fd, config_name, O_WRONLY | O_CREAT | O_EXCL, 0644);
         if (fd == -1)
             die("open(%s)", config_name);
         FILE *f = fdopen(fd, "w");
